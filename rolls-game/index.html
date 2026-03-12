@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Rolls - Telegram Mini App</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #00ff00;
+            --primary-dark: #00cc00;
+            --secondary: #00d4ff;
+            --success: #28a745;
+            --danger: #ff5733;
+            --warning: #ffb800;
+            --dark-bg: #0a0e27;
+            --card-bg: #1a1f3a;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0a0;
+            --border: #2a2f4a;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--dark-bg);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow: hidden;
+        }
+
+        .app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .page {
+            display: none;
+            height: 100%;
+            flex-direction: column;
+        }
+
+        .page.active {
+            display: flex;
+        }
+
+        .page-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            padding-bottom: 100px;
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        h2 {
+            font-size: 20px;
+            margin-bottom: 15px;
+            color: var(--primary);
+        }
+
+        .btn {
+            padding: 14px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 16px;
+            width: 100%;
+        }
+
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: var(--dark-bg);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--primary-dark);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-around;
+            background: var(--card-bg);
+            border-top: 2px solid var(--border);
+            padding: 8px 0;
+            z-index: 100;
+            height: 70px;
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            padding: 8px 12px;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 12px;
+            flex: 1;
+        }
+
+        .nav-item:hover,
+        .nav-item.active {
+            color: var(--primary);
+            transform: scale(1.1);
+        }
+
+        .nav-icon {
+            font-size: 24px;
+        }
+
+        .balance-card {
+            background: linear-gradient(135deg, rgba(0, 255, 0, 0.1), rgba(0, 212, 255, 0.1));
+            padding: 20px;
+            border-radius: 12px;
+            border: 2px solid var(--primary);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .balance-card .balance-amount {
+            font-size: 42px;
+            font-weight: bold;
+            color: var(--primary);
+            margin: 10px 0;
+        }
+
+        .participant {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            padding: 10px;
+            background: var(--card-bg);
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 10px;
+        }
+
+        .participant:hover {
+            border-color: var(--primary);
+            background: rgba(0, 255, 0, 0.1);
+        }
+
+        .participant-avatar {
+            font-size: 32px;
+        }
+
+        .participant.selected {
+            border-color: var(--primary);
+            background: rgba(0, 255, 0, 0.2);
+        }
+
+        .info-box {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        .stat-value {
+            font-weight: bold;
+            color: var(--primary);
+            font-size: 18px;
+        }
+
+        .wheel-container {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 400px;
+            margin: 20px 0;
+            background: linear-gradient(135deg, rgba(0, 255, 0, 0.05), rgba(0, 212, 255, 0.05));
+            border-radius: 16px;
+            border: 2px dashed var(--border);
+        }
+
+        #wheelCanvas {
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        .wheel-pointer {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 20px solid transparent;
+            border-right: 20px solid transparent;
+            border-top: 30px solid var(--primary);
+            z-index: 10;
+            filter: drop-shadow(0 0 8px rgba(0, 255, 0, 0.8));
+        }
+
+        .balls-container {
+            position: relative;
+            width: 100%;
+            height: 500px;
+            margin: 20px 0;
+            border-radius: 16px;
+            border: 2px solid var(--border);
+            overflow: hidden;
+        }
+
+        #ballsCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            background: rgba(10, 14, 39, 0.8);
+        }
+
+        .betting-section {
+            background: var(--card-bg);
+            padding: 16px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            margin: 20px 0;
+        }
+
+        .bet-input-group {
+            margin-bottom: 15px;
+        }
+
+        .bet-input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .bet-input-group input {
+            width: 100%;
+            padding: 12px;
+            background: var(--dark-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 16px;
+        }
+
+        .preset-buttons {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .preset-btn {
+            padding: 8px 12px;
+            background: var(--dark-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+
+        .preset-btn:hover {
+            background: var(--primary);
+            color: var(--dark-bg);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--card-bg);
+            padding: 24px;
+            border-radius: 16px;
+            border: 2px solid var(--primary);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .modal-content h2 {
+            margin-bottom: 20px;
+        }
+
+        .result-body {
+            margin-bottom: 20px;
+            font-size: 18px;
+            line-height: 1.8;
+        }
+
+        .waiting-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            background: var(--success);
+            color: white;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+
+        .status-badge.offline {
+            background: var(--danger);
+        }
+
+        .vs-section {
+            text-align: center;
+            margin: 20px 0;
+            padding: 20px;
+            background: var(--card-bg);
+            border-radius: 12px;
+        }
+
+        .vs-text {
+            font-size: 18px;
+            font-weight: bold;
+            color: var(--warning);
+        }
+
+        .countdown-big {
+            font-size: 48px;
+            color: var(--danger);
+            animation: pulse 0.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <!-- НАВИГАЦИЯ -->
+        <nav class="bottom-nav">
+            <button class="nav-item active" onclick="app.switchPage('wheel')">
+                <span class="nav-icon">🎡</span>
+                <span class="nav-label">Колесо</span>
+            </button>
+            <button class="nav-item" onclick="app.switchPage('balls')">
+                <span class="nav-icon">🏃</span>
+                <span class="nav-label">Бэллс</span>
+            </button>
+            <button class="nav-item" onclick="app.switchPage('profile')">
+                <span class="nav-icon">👤</span>
+                <span class="nav-label">Профиль</span>
+            </button>
+        </nav>
+
+        <!-- СТРАНИЦА КОЛЕСА -->
+        <div class="page active" id="wheel-page">
+            <div class="page-content">
+                <h1>🎡 Колесо везения</h1>
+                
+                <div class="balance-card">
+                    <div style="font-size: 14px; color: var(--text-secondary);">💰 Ваш баланс</div>
+                    <div class="balance-amount" id="wheelBalance">0</div>
+                    <span>TON</span>
+                    <button class="btn btn-success" id="claimBtn" onclick="app.claimReward()" 
+                        style="margin-top: 10px; padding: 8px 16px; font-size: 14px;">
+                        🎁 Получить
+                    </button>
+                </div>
+
+                <div class="betting-section">
+                    <h2>💵 Выберите ставку</h2>
+                    <div class="bet-input-group">
+                        <label>Размер ставки (TON):</label>
+                        <input type="number" id="betAmount" value="1" min="1" max="1000">
+                    </div>
+                    <div class="preset-buttons">
+                        <button class="preset-btn" onclick="setBet(1)">1</button>
+                        <button class="preset-btn" onclick="setBet(5)">5</button>
+                        <button class="preset-btn" onclick="setBet(10)">10</button>
+                        <button class="preset-btn" onclick="setBet(25)">25</button>
+                        <button class="preset-btn" onclick="setBet(50)">50</button>
+                        <button class="preset-btn" onclick="setBet(100)">100</button>
+                    </div>
+                </div>
+
+                <h2>👥 Выберите противника</h2>
+                <div id="playersList" style="margin-bottom: 20px;"></div>
+
+                <div class="vs-section" id="vsSection" style="display: none;">
+                    <div class="vs-text" id="vsText"></div>
+                    <div class="wheel-container">
+                        <canvas id="wheelCanvas"></canvas>
+                        <div class="wheel-pointer"></div>
+                    </div>
+                    <button id="spinBtn" class="btn btn-primary" onclick="wheelGame.spin()">
+                        🎡 КРУТИТЬ!
+                    </button>
+                </div>
+
+                <div id="waitingSection" style="display: none;">
+                    <h3>⏳ Ожидание противника...</h3>
+                    <div class="waiting-spinner"></div>
+                    <button class="btn btn-danger" onclick="wheelGame.cancelQueue()" style="margin-top: 10px;">
+                        ❌ Отмена
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- СТРАНИЦА БЭЛЛС -->
+        <div class="page" id="balls-page">
+            <div class="page-content">
+                <h1>🏃 Бэллс</h1>
+                
+                <div class="balance-card">
+                    <div style="font-size: 14px; color: var(--text-secondary);">💰 Баланс</div>
+                    <div class="balance-amount" id="ballsBalance">0</div>
+                    <span>TON</span>
+                </div>
+
+                <div style="background: var(--card-bg); padding: 16px; border-radius: 12px; margin: 20px 0;">
+                    <h3>🛒 Купить шарики</h3>
+                    <div style="display: flex; gap: 10px; margin: 15px 0;">
+                        <button onclick="ballsGame.decreaseBalls()" style="padding: 10px 20px; background: var(--dark-bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); cursor: pointer;">➖</button>
+                        <input type="number" id="ballsCount" value="1" min="1" max="100" readonly style="flex: 1; padding: 10px; background: var(--dark-bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); text-align: center;">
+                        <button onclick="ballsGame.increaseBalls()" style="padding: 10px 20px; background: var(--dark-bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); cursor: pointer;">➕</button>
+                    </div>
+                    <div style="text-align: center; padding: 12px; background: rgba(0, 255, 0, 0.1); border-radius: 6px; margin-bottom: 15px;">
+                        <div style="font-size: 24px; font-weight: bold; color: var(--primary);"><span id="ballsCost">1</span> TON</div>
+                    </div>
+                    <button class="btn btn-primary" onclick="ballsGame.buyBalls()">🛒 Купить</button>
+                </div>
+
+                <div class="balls-container">
+                    <canvas id="ballsCanvas"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- СТРАНИЦА ПРОФИЛЯ -->
+        <div class="page" id="profile-page">
+            <div class="page-content">
+                <h1>👤 Профиль</h1>
+                
+                <div class="balance-card">
+                    <div style="font-size: 14px; color: var(--text-secondary);">💰 Баланс</div>
+                    <div class="balance-amount" id="profileBalance">0</div>
+                    <span>TON</span>
+                </div>
+
+                <div class="info-box">
+                    <span>ID:</span>
+                    <span class="stat-value" id="userIdDisplay">-</span>
+                </div>
+
+                <div class="info-box">
+                    <span>Имя:</span>
+                    <span class="stat-value" id="userNameDisplay">-</span>
+                </div>
+
+                <h2 style="margin-top: 20px;">📊 Колесо</h2>
+                <div class="info-box">
+                    <span>Игр:</span>
+                    <span class="stat-value" id="wheelGames">0</span>
+                </div>
+                <div class="info-box">
+                    <span>Побед:</span>
+                    <span class="stat-value" id="wheelWins">0</span>
+                </div>
+
+                <h2 style="margin-top: 20px;">📊 Бэллс</h2>
+                <div class="info-box">
+                    <span>Игр:</span>
+                    <span class="stat-value" id="ballsGames">0</span>
+                </div>
+
+                <button class="btn btn-danger" onclick="app.clearAllData()" style="margin-top: 20px;">🗑️ Очистить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- МОДАЛИ -->
+    <div class="modal" id="resultModal">
+        <div class="modal-content">
+            <h2 id="resultTitle">Результат</h2>
+            <div id="resultBody"></div>
+            <button class="btn btn-primary" onclick="closeModal()">OK</button>
+        </div>
+    </div>
+
+    <div class="modal" id="countdownModal">
+        <div class="modal-content">
+            <h2>⏳</h2>
+            <div style="font-size: 48px; color: var(--danger); animation: pulse 0.5s infinite;" id="countdownNumber">3</div>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.setBackgroundColor('#0a0e27');
+        const user = tg.initDataUnsafe.user;
+
+        // ЛОКАЛЬНОЕ ХРАНИЛИЩЕ ИГРОКОВ (имитация мультиплеера)
+        const onlinePlayers = new Map();
+        
+        class RollsApp {
+            constructor() {
+                this.user = user;
+                this.userId = user?.id || Math.random().toString(36).substr(2, 9);
+                this.balance = 100;
+                this.stats = { wheelGames: 0, wheelWins: 0, ballsGames: 0 };
+                this.lastFaucetTime = 0;
+                
+                // Регистрировать игрока онлайн
+                onlinePlayers.set(this.userId, {
+                    id: this.userId,
+                    name: user?.first_name || 'Игрок',
+                    avatar: this.getRandomAvatar(),
+                    balance: this.balance
+                });
+                
+                this.initUI();
+                setInterval(() => this.updateFaucetTimer(), 1000);
+            }
+
+            getRandomAvatar() {
+                const avatars = ['😊', '🤖', '👾', '🎮', '🏆', '🌟', '💎', '🚀'];
+                return avatars[Math.floor(Math.random() * avatars.length)];
+            }
+
+            initUI() {
+                document.getElementById('userIdDisplay').textContent = this.userId;
+                document.getElementById('userNameDisplay').textContent = user?.first_name || 'Гость';
+                this.updateBalanceDisplay();
+                wheelGame.displayPlayers();
+            }
+
+            claimReward() {
+                const now = Date.now();
+                if (now - this.lastFaucetTime < 120000) {
+                    alert('⏳ Приходите через 2 минуты');
+                    return;
+                }
+                const reward = Math.floor(Math.random() * 5) + 1;
+                this.balance += reward;
+                this.lastFaucetTime = now;
+                this.updateBalanceDisplay();
+                showModal('🎁 +' + reward + ' TON', '<p style="color: #00ff00;">Награда получена!</p>');
+            }
+
+            updateFaucetTimer() {
+                const timeLeft = Math.max(0, 120000 - (Date.now() - this.lastFaucetTime));
+                const disabled = timeLeft > 0;
+                document.getElementById('claimBtn').disabled = disabled;
+            }
+
+            updateBalanceDisplay() {
+                document.getElementById('wheelBalance').textContent = this.balance;
+                document.getElementById('ballsBalance').textContent = this.balance;
+                document.getElementById('profileBalance').textContent = this.balance;
+            }
+
+            switchPage(pageName) {
+                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                document.getElementById(`${pageName}-page`).classList.add('active');
+                document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+                event.target.closest('.nav-item').classList.add('active');
+            }
+
+            clearAllData() {
+                if (confirm('Очистить?')) {
+                    this.balance = 100;
+                    this.stats = { wheelGames: 0, wheelWins: 0, ballsGames: 0 };
+                    this.updateBalanceDisplay();
+                }
+            }
+        }
+
+        class WheelGame {
+            constructor() {
+                this.canvas = document.getElementById('wheelCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.isSpinning = false;
+                this.currentRotation = 0;
+                this.targetRotation = 0;
+                this.opponent = null;
+                this.setupCanvas();
+            }
+
+            setupCanvas() {
+                this.canvas.width = Math.min(400, window.innerWidth - 40);
+                this.canvas.height = this.canvas.width;
+                this.draw();
+            }
+
+            displayPlayers() {
+                const container = document.getElementById('playersList');
+                container.innerHTML = '';
+                
+                const players = Array.from(onlinePlayers.values()).filter(p => p.id !== app.userId);
+                
+                if (players.length === 0) {
+                    container.innerHTML = '<p style="text-align: center; color: #a0a0a0;">Нет онлайн игроков</p>';
+                    return;
+                }
+
+                players.forEach(p => {
+                    const div = document.createElement('div');
+                    div.className = 'participant';
+                    div.innerHTML = `
+                        <div class="participant-avatar">${p.avatar}</div>
+                        <div>${p.name}</div>
+                        <div style="font-size: 12px; color: #ffb800;">${p.balance} TON</div>
+                        <span class="status-badge">🟢 Online</span>
+                    `;
+                    div.onclick = () => this.selectOpponent(p);
+                    container.appendChild(div);
+                });
+            }
+
+            selectOpponent(player) {
+                const bet = parseInt(document.getElementById('betAmount').value) || 1;
+                
+                if (app.balance < bet) {
+                    alert('❌ Недостаточно TON!');
+                    return;
+                }
+
+                this.opponent = player;
+                document.getElementById('playersList').style.display = 'none';
+                document.getElementById('waitingSection').style.display = 'block';
+                document.getElementById('vsText').textContent = `${app.user?.first_name} 🆚 ${player.name}`;
+                
+                // Имитация поиска (в реальности через сервер)
+                setTimeout(() => {
+                    document.getElementById('waitingSection').style.display = 'none';
+                    document.getElementById('vsSection').style.display = 'block';
+                    this.draw();
+                }, 2000 + Math.random() * 2000);
+            }
+
+            cancelQueue() {
+                this.opponent = null;
+                document.getElementById('waitingSection').style.display = 'none';
+                document.getElementById('playersList').style.display = 'block';
+            }
+
+            draw() {
+                const cx = this.canvas.width / 2;
+                const cy = this.canvas.height / 2;
+                const r = Math.min(cx, cy) - 10;
+
+                this.ctx.fillStyle = 'rgba(10, 14, 39, 0.8)';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                this.ctx.save();
+                this.ctx.translate(cx, cy);
+                this.ctx.rotate(this.currentRotation);
+
+                const angle = Math.PI;
+                for (let i = 0; i < 2; i++) {
+                    const start = i * angle;
+                    const end = (i + 1) * angle;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, 0);
+                    this.ctx.arc(0, 0, r, start, end);
+                    this.ctx.closePath();
+                    this.ctx.fillStyle = i === 0 ? '#00ff00' : '#ff5733';
+                    this.ctx.fill();
+                    this.ctx.strokeStyle = '#fff';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.stroke();
+                }
+
+                this.ctx.beginPath();
+                this.ctx.arc(0, 0, 15, 0, Math.PI * 2);
+                this.ctx.fillStyle = '#00ff00';
+                this.ctx.fill();
+                this.ctx.restore();
+            }
+
+            spin() {
+                if (this.isSpinning || !this.opponent) return;
+
+                const bet = parseInt(document.getElementById('betAmount').value) || 1;
+                if (app.balance < bet) {
+                    alert('❌ Недостаточно TON!');
+                    return;
+                }
+
+                this.isSpinning = true;
+                app.balance -= bet;
+                app.updateBalanceDisplay();
+
+                const spins = 5 + Math.random() * 5;
+                const winner = Math.random() > 0.5 ? 0 : 1;
+                this.targetRotation = spins * Math.PI * 2 + winner * Math.PI;
+
+                const start = Date.now();
+                const animate = () => {
+                    const elapsed = Date.now() - start;
+                    const progress = Math.min(elapsed / 5000, 1);
+                    const ease = progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
+
+                    this.currentRotation = this.targetRotation * ease;
+                    this.draw();
+
+                    if (progress < 1) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        this.finishSpin(winner, bet);
+                    }
+                };
+                requestAnimationFrame(animate);
+            }
+
+            finishSpin(winner, bet) {
+                this.isSpinning = false;
+                app.stats.wheelGames++;
+
+                if (winner === 0) {
+                    app.stats.wheelWins++;
+                    const winAmount = Math.floor(bet * 1.9);
+                    app.balance += winAmount;
+                    showModal('🏆 ПОБЕДА!', `<p style="color: #00ff00; font-size: 20px;">+${winAmount} TON</p>`);
+                } else {
+                    showModal('😢 Поражение', `<p style="color: #ff5733; font-size: 20px;">-${bet} TON</p>`);
+                }
+
+                app.updateBalanceDisplay();
+                this.opponent = null;
+                document.getElementById('vsSection').style.display = 'none';
+                document.getElementById('playersList').style.display = 'block';
+                this.displayPlayers();
+            }
+        }
+
+        class BallsGame {
+            constructor() {
+                this.canvas = document.getElementById('ballsCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.ballsCount = 1;
+                this.setupCanvas();
+                this.draw();
+            }
+
+            setupCanvas() {
+                this.canvas.width = window.innerWidth - 40;
+                this.canvas.height = 500;
+            }
+
+            increaseBalls() {
+                if (this.ballsCount < 100) {
+                    this.ballsCount++;
+                    this.updateCost();
+                }
+            }
+
+            decreaseBalls() {
+                if (this.ballsCount > 1) {
+                    this.ballsCount--;
+                    this.updateCost();
+                }
+            }
+
+            updateCost() {
+                document.getElementById('ballsCount').value = this.ballsCount;
+                document.getElementById('ballsCost').textContent = this.ballsCount;
+            }
+
+            buyBalls() {
+                if (app.balance < this.ballsCount) {
+                    alert('❌ Недостаточно TON!');
+                    return;
+                }
+
+                app.balance -= this.ballsCount;
+                app.updateBalanceDisplay();
+
+                let count = 3;
+                document.getElementById('countdownModal').classList.add('active');
+                const timer = setInterval(() => {
+                    document.getElementById('countdownNumber').textContent = count;
+                    count--;
+                    if (count < 0) {
+                        clearInterval(timer);
+                        document.getElementById('countdownModal').classList.remove('active');
+                        this.startGame();
+                    }
+                }, 1000);
+            }
+
+            startGame() {
+                app.stats.ballsGames++;
+                this.draw();
+            }
+
+            draw() {
+                this.ctx.fillStyle = 'rgba(10, 14, 39, 0.95)';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                this.ctx.fillStyle = '#00ff00';
+                this.ctx.font = 'bold 20px Arial';
+                this.ctx.fillText('🏃 Игра запущена!', this.canvas.width / 2 - 100, this.canvas.height / 2);
+            }
+        }
+
+        const app = new RollsApp();
+        const wheelGame = new WheelGame();
+        const ballsGame = new BallsGame();
+
+        function setBet(amount) {
+            document.getElementById('betAmount').value = amount;
+        }
+
+        function showModal(title, body) {
+            document.getElementById('resultTitle').textContent = title;
+            document.getElementById('resultBody').innerHTML = body;
+            document.getElementById('resultModal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('resultModal').classList.remove('active');
+        }
+
+        // Обновлять список игроков каждые 5 секунд
+        setInterval(() => {
+            wheelGame.displayPlayers();
+        }, 5000);
+
+        tg.MainButton.show();
+        tg.MainButton.setText('🎮 Rolls');
+    </script>
+</body>
+</html>
