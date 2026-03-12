@@ -2,127 +2,143 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Rolls PvP</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rolls Jackpot</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: sans-serif; background: #0a0e27; color: white; padding: 20px; }
-        .card { background: #1a1f3a; padding: 20px; border-radius: 15px; border: 1px solid #00ff00; text-align: center; margin-bottom: 20px; }
-        .balance { font-size: 32px; color: #00ff00; font-weight: bold; }
-        .bet-selector { display: flex; justify-content: center; gap: 10px; margin: 15px 0; }
-        .bet-btn { background: #0a0e27; border: 1px solid #2a2f4a; color: white; padding: 10px 15px; border-radius: 8px; cursor: pointer; }
-        .bet-btn.active { border-color: #00ff00; background: rgba(0,255,0,0.1); }
-        .wheel-box { position: relative; width: 250px; height: 250px; margin: 20px auto; }
-        canvas { width: 100%; height: 100%; border-radius: 50%; }
+        body { font-family: sans-serif; background: #0a0e27; color: white; text-align: center; padding: 10px; }
+        .stats { background: #1a1f3a; padding: 15px; border-radius: 15px; border: 1px solid #00ff00; margin-bottom: 15px; }
+        .timer-box { font-size: 24px; color: #ffb800; margin: 10px 0; font-weight: bold; min-height: 30px; }
+        .wheel-box { position: relative; width: 300px; height: 300px; margin: 0 auto; }
+        canvas { width: 100%; height: 100%; }
         .pointer { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-top: 25px solid #00ff00; z-index: 10; }
-        .game-item { background: #1a1f3a; padding: 12px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border: 1px solid #2a2f4a; }
-        .btn-main { background: #00ff00; color: #0a0e27; padding: 15px; border: none; border-radius: 10px; width: 100%; font-weight: bold; cursor: pointer; }
-        .btn-accept { background: #28a745; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; }
+        .bet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin: 10px 0; }
+        .btn { background: #00ff00; color: #0a0e27; padding: 15px; border: none; border-radius: 10px; width: 100%; font-weight: bold; }
+        .player-item { display: flex; justify-content: space-between; padding: 8px; border-bottom: 1px solid #2a2f4a; font-size: 14px; }
     </style>
 </head>
 <body>
 
-    <div class="card">
-        <div>Ваш баланс</div>
-        <div class="balance"><span id="bal">100</span> TON</div>
-        <div class="bet-selector">
-            <button class="bet-btn active" onclick="setBet(1, this)">1</button>
-            <button class="bet-btn" onclick="setBet(2, this)">2</button>
-            <button class="bet-btn" onclick="setBet(5, this)">5</button>
-            <button class="bet-btn" onclick="setBet(10, this)">10</button>
+    <div class="stats">
+        <div>Ваш баланс: <b id="bal" style="color:#00ff00">100</b> TON</div>
+        <div class="timer-box" id="timerDisplay">Ожидание игроков...</div>
+        <div class="bet-grid" id="betBtns">
+            <button onclick="join(1)" style="padding:10px">1</button>
+            <button onclick="join(2)" style="padding:10px">2</button>
+            <button onclick="join(5)" style="padding:10px">5</button>
+            <button onclick="join(10)" style="padding:10px">10</button>
         </div>
-        <button class="btn-main" onclick="createGame()">СОЗДАТЬ СТАВКУ</button>
     </div>
 
     <div class="wheel-box">
         <div class="pointer"></div>
-        <canvas id="wheelCanvas" width="300" height="300"></canvas>
+        <canvas id="wheelCanvas" width="400" height="400"></canvas>
     </div>
 
-    <h3>Активные игроки:</h3>
-    <div id="lobby" style="margin-top: 10px;"></div>
+    <div id="playerList" style="margin-top:20px; background:#1a1f3a; border-radius:10px; padding:10px"></div>
 
     <script>
         const tg = window.Telegram.WebApp;
         const socket = io();
-        tg.expand();
-
         let balance = parseInt(localStorage.getItem('balance')) || 100;
-        let currentBet = 1;
-        const user = tg.initDataUnsafe.user || { first_name: "Игрок" };
+        let currentRoom = { players: [] };
+        const user = tg.initDataUnsafe.user || { first_name: "Игрок_" + Math.floor(Math.random()*100) };
 
-        function updateUI() {
+        function updateBal() {
             document.getElementById('bal').textContent = balance;
             localStorage.setItem('balance', balance);
         }
 
-        function setBet(amt, btn) {
-            currentBet = amt;
-            document.querySelectorAll('.bet-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
+        function join(amt) {
+            if (balance < amt) return alert("Мало TON");
+            balance -= amt;
+            updateBal();
+            socket.emit('joinGame', { amount: amt, userName: user.first_name });
+            tg.HapticFeedback.impactOccurred('medium');
         }
 
-        function createGame() {
-            if (balance < currentBet) return alert("Мало TON!");
-            balance -= currentBet; // Списываем сразу при создании
-            updateUI();
-            socket.emit('createBet', { amount: currentBet, userName: user.first_name });
-        }
+        socket.on('updateRoom', (room) => {
+            currentRoom = room;
+            renderPlayers();
+            if (room.status === 'waiting') {
+                document.getElementById('timerDisplay').textContent = "Ожидание игроков (минимум 2)...";
+                drawWheel(0);
+            }
+        });
 
-        function acceptGame(gameId, amount) {
-            if (balance < amount) return alert("У вас недостаточно TON!");
-            balance -= amount; // Списываем у того, кто принял
-            updateUI();
-            socket.emit('joinGame', { gameId, participantName: user.first_name });
-        }
-
-        socket.on('updateLobby', (games) => {
-            const lobby = document.getElementById('lobby');
-            lobby.innerHTML = games.length ? '' : 'Поиск игроков...';
-            games.forEach(g => {
-                const div = document.createElement('div');
-                div.className = 'game-item';
-                div.innerHTML = `<span>${g.userName}: <b>${g.amount} TON</b></span> 
-                                 <button class="btn-accept" onclick="acceptGame('${g.id}', ${g.amount})">Играть</button>`;
-                lobby.appendChild(div);
-            });
+        socket.on('timerTick', (sec) => {
+            document.getElementById('timerDisplay').textContent = `До начала: ${sec} сек!`;
+            tg.HapticFeedback.selectionChanged();
         });
 
         socket.on('startGameAnimation', (data) => {
             let rotation = 0;
-            let speed = 0.6;
+            let speed = 0.7;
             const interval = setInterval(() => {
                 rotation += speed;
-                drawWheel(rotation);
-                speed *= 0.98;
-                if(speed < 0.01) {
+                drawWheel(rotation, data.players);
+                speed *= 0.985;
+                if (speed < 0.005) {
                     clearInterval(interval);
+                    document.getElementById('timerDisplay').textContent = `Победил: ${data.winner}!`;
                     if (user.first_name === data.winner) {
-                        balance += data.amount * 1.9; // Выигрыш с комиссией 5%
-                        updateUI();
-                        tg.showAlert("🎉 ТЫ ВЫИГРАЛ!");
-                    } else {
-                        tg.showAlert("😢 Победил " + data.winner);
+                        balance += data.totalBank * 0.95;
+                        updateBal();
+                        tg.showAlert("💰 ВЫ ВЫИГРАЛИ " + (data.totalBank * 0.95).toFixed(2) + " TON!");
                     }
                 }
             }, 30);
         });
 
-        const ctx = document.getElementById('wheelCanvas').getContext('2d');
-        function drawWheel(r) {
-            const colors = ['#ff5733', '#00ff00', '#3357ff', '#ffff00'];
-            for(let i=0; i<4; i++) {
-                ctx.beginPath();
-                ctx.fillStyle = colors[i];
-                ctx.moveTo(150,150);
-                ctx.arc(150,150,145, i*Math.PI/2+r, (i+1)*Math.PI/2+r);
-                ctx.fill();
-            }
+        function renderPlayers() {
+            const list = document.getElementById('playerList');
+            const total = currentRoom.players.reduce((s, p) => s + p.amount, 0);
+            list.innerHTML = `<b>БАНК: ${total} TON</b><br>`;
+            currentRoom.players.forEach(p => {
+                const perc = ((p.amount / total) * 100).toFixed(0);
+                list.innerHTML += `<div class="player-item">
+                    <span style="color:${p.color}">● ${p.name}</span>
+                    <span>${p.amount} TON (${perc}%)</span>
+                </div>`;
+            });
         }
+
+        const ctx = document.getElementById('wheelCanvas').getContext('2d');
+        function drawWheel(rot, players = currentRoom.players) {
+            ctx.clearRect(0,0,400,400);
+            if (players.length === 0) {
+                ctx.beginPath(); ctx.fillStyle = '#2a2f4a'; ctx.arc(200,200,180,0,Math.PI*2); ctx.fill();
+                return;
+            }
+            
+            const total = players.reduce((s, p) => s + p.amount, 0);
+            let currentAngle = rot;
+
+            players.forEach(p => {
+                const sliceAngle = (p.amount / total) * Math.PI * 2;
+                ctx.beginPath();
+                ctx.fillStyle = p.color;
+                ctx.moveTo(200,200);
+                ctx.arc(200,200,180, currentAngle, currentAngle + sliceAngle);
+                ctx.fill();
+                ctx.strokeStyle = '#0a0e27'; ctx.lineWidth = 2; ctx.stroke();
+
+                // Текст (имя)
+                ctx.save();
+                ctx.translate(200,200);
+                ctx.rotate(currentAngle + sliceAngle/2);
+                ctx.fillStyle = "white";
+                ctx.font = "bold 14px sans-serif";
+                ctx.fillText(p.name, 70, 5);
+                ctx.restore();
+
+                currentAngle += sliceAngle;
+            });
+        }
+
         drawWheel(0);
-        updateUI();
+        updateBal();
     </script>
 </body>
 </html>
