@@ -3,225 +3,191 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Rolls - Telegram Mini App</title>
+    <title>Rolls Online - PvP</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --primary: #00ff00; --primary-dark: #00cc00; --secondary: #00d4ff;
-            --success: #28a745; --danger: #ff5733; --warning: #ffb800;
-            --dark-bg: #0a0e27; --card-bg: #1a1f3a; --text-primary: #ffffff;
-            --text-secondary: #a0a0a0; --border: #2a2f4a;
+            --primary: #00ff00; --dark-bg: #0a0e27; --card-bg: #1a1f3a;
+            --text-primary: #ffffff; --border: #2a2f4a;
         }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--dark-bg); color: var(--text-primary); overflow-x: hidden;
+            font-family: sans-serif; background: var(--dark-bg); color: var(--text-primary);
+            padding-bottom: 80px;
         }
-        .app { display: flex; flex-direction: column; min-height: 100vh; }
-        .page { display: none; padding: 20px; padding-bottom: 90px; }
+        .page { padding: 20px; display: none; }
         .page.active { display: block; }
-        .btn {
-            padding: 14px; border: none; border-radius: 8px; font-weight: bold;
-            cursor: pointer; width: 100%; font-size: 16px; margin-top: 10px;
-        }
-        .btn-primary { background: var(--primary); color: var(--dark-bg); }
-        .btn-success { background: var(--success); color: white; }
+        
+        /* Баланс и Ставки */
         .balance-card {
-            background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px;
+            background: var(--card-bg); padding: 20px; border-radius: 12px;
             border: 1px solid var(--primary); text-align: center; margin-bottom: 20px;
         }
-        .balance-amount { font-size: 36px; font-weight: bold; color: var(--primary); }
-        .wheel-container { position: relative; margin: 20px auto; width: 300px; height: 300px; }
-        #wheelCanvas { width: 100%; height: 100%; border-radius: 50%; border: 5px solid var(--border); }
-        .wheel-pointer {
+        .bet-selector { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0; }
+        .bet-btn {
+            background: var(--dark-bg); border: 1px solid var(--border);
+            color: white; padding: 10px; border-radius: 8px; cursor: pointer;
+        }
+        .bet-btn.active { border-color: var(--primary); color: var(--primary); background: rgba(0,255,0,0.1); }
+
+        /* Колесо */
+        .wheel-box { position: relative; width: 280px; height: 280px; margin: 20px auto; }
+        #wheelCanvas { width: 100%; height: 100%; }
+        .pointer {
             position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
-            width: 0; height: 0; border-left: 15px solid transparent;
-            border-right: 15px solid transparent; border-top: 25px solid var(--primary); z-index: 10;
+            width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent;
+            border-top: 25px solid var(--primary); z-index: 10;
         }
-        .bottom-nav {
-            position: fixed; bottom: 0; left: 0; right: 0; display: flex;
-            background: var(--card-bg); border-top: 1px solid var(--border); height: 70px;
+
+        /* Список игр */
+        .game-list { margin-top: 20px; }
+        .game-item {
+            background: var(--card-bg); padding: 15px; border-radius: 10px;
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+            border: 1px solid var(--border);
         }
-        .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-secondary); background: none; border: none; }
+        .btn { padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        .btn-primary { background: var(--primary); color: var(--dark-bg); width: 100%; }
+        .btn-accept { background: #28a745; color: white; padding: 8px 15px; }
+
+        /* Навигация */
+        .nav { position: fixed; bottom: 0; width: 100%; height: 60px; background: var(--card-bg); display: flex; border-top: 1px solid var(--border); }
+        .nav-item { flex: 1; display: flex; align-items: center; justify-content: center; color: #888; text-decoration: none; cursor: pointer; }
         .nav-item.active { color: var(--primary); }
-        .modal { display: none; position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.9); z-index: 1000; align-items: center; justify-content: center; }
-        .modal.active { display: flex; }
-        .modal-content { background: var(--card-bg); padding: 30px; border-radius: 15px; text-align: center; width: 80%; border: 1px solid var(--primary); }
-        .participants-list { display: flex; gap: 10px; overflow-x: auto; padding: 10px 0; }
-        .participant { padding: 10px; border: 1px solid var(--border); border-radius: 10px; min-width: 80px; text-align: center; }
-        .participant.selected { border-color: var(--primary); background: rgba(0,255,0,0.1); }
     </style>
 </head>
 <body>
-    <div class="app">
-        <div id="wheel-page" class="page active">
-            <div class="balance-card">
-                <div>Ваш баланс</div>
-                <div class="balance-amount"><span id="balance">100</span> TON</div>
-                <button class="btn btn-success" onclick="claimFree()">🎁 Бонус</button>
-            </div>
-            
-            <div class="wheel-container">
-                <div class="wheel-pointer"></div>
-                <canvas id="wheelCanvas" width="300" height="300"></canvas>
-            </div>
 
-            <button id="spinBtn" class="btn btn-primary" onclick="spin()">КРУТИТЬ</button>
-            
-            <h3 style="margin-top:20px">Выбери противника:</h3>
-            <div id="participants" class="participants-list"></div>
+    <div id="game-page" class="page active">
+        <div class="balance-card">
+            <div>Твой баланс: <strong id="balanceDisplay">100</strong> TON</div>
+            <div class="bet-selector">
+                <button class="bet-btn active" onclick="selectBet(1, this)">1</button>
+                <button class="bet-btn" onclick="selectBet(2, this)">2</button>
+                <button class="bet-btn" onclick="selectBet(5, this)">5</button>
+                <button class="bet-btn" onclick="selectBet(10, this)">10</button>
+            </div>
+            <button class="btn btn-primary" onclick="createGame()">СОЗДАТЬ ИГРУ</button>
         </div>
 
-        <div id="profile-page" class="page">
-            <h2>Профиль</h2>
-            <div id="userInfo" style="margin-top: 20px;"></div>
+        <div class="wheel-box">
+            <div class="pointer"></div>
+            <canvas id="wheelCanvas" width="300" height="300"></canvas>
         </div>
 
-        <nav class="bottom-nav">
-            <button class="nav-item active" onclick="showPage('wheel')">🎡 Игра</button>
-            <button class="nav-item" onclick="showPage('profile')">👤 Профиль</button>
-        </nav>
+        <div class="game-list">
+            <h3>Доступные игры (PvP):</h3>
+            <div id="lobby">
+                <p style="color: #666; margin-top: 10px;">Поиск активных ставок...</p>
+            </div>
+        </div>
     </div>
 
-    <div id="modal" class="modal">
-        <div class="modal-content">
-            <h2 id="modalTitle"></h2>
-            <p id="modalText"></p>
-            <button class="btn btn-primary" onclick="closeModal()">OK</button>
-        </div>
+    <div id="profile-page" class="page">
+        <h2>Профиль</h2>
+        <p id="userStatus">Загрузка данных из Telegram...</p>
     </div>
+
+    <nav class="nav">
+        <div class="nav-item active" onclick="showPage('game', this)">🎡 Игра</div>
+        <div class="nav-item" onclick="showPage('profile', this)">👤 Профиль</div>
+    </nav>
 
     <script>
         const tg = window.Telegram.WebApp;
+        const socket = io(); // Подключаемся к серверу
         tg.expand();
-        
-        let balance = parseInt(localStorage.getItem('balance')) || 100;
+
+        let myBalance = parseInt(localStorage.getItem('balance')) || 100;
+        let selectedBet = 1;
         let isSpinning = false;
-        let currentRotation = 0;
-        let selectedOpponent = null;
+        
+        const user = tg.initDataUnsafe.user || { first_name: "Игрок", id: 0 };
 
-        const participants = [
-            { name: "Robot", avatar: "🤖", color: "#ff5733" },
-            { name: "Alien", avatar: "👾", color: "#00d4ff" },
-            { name: "Ghost", avatar: "👻", color: "#ffb800" },
-            { name: "Cat", avatar: "🐱", color: "#ff00ff" }
-        ];
+        // Сообщаем серверу, что мы зашли
+        socket.emit('playerJoin', { name: user.first_name, id: user.id });
 
-        function updateUI() {
-            document.getElementById('balance').textContent = balance;
-            localStorage.setItem('balance', balance);
+        function updateBalance() {
+            document.getElementById('balanceDisplay').textContent = myBalance;
+            localStorage.setItem('balance', myBalance);
         }
 
-        function showPage(name) {
+        function selectBet(amount, btn) {
+            selectedBet = amount;
+            document.querySelectorAll('.bet-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            tg.HapticFeedback.selectionChanged();
+        }
+
+        function showPage(page, el) {
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-            document.getElementById(name + '-page').classList.add('active');
-            if(name === 'profile') {
-                const user = tg.initDataUnsafe.user || { first_name: "Гость", id: "000" };
-                document.getElementById('userInfo').innerHTML = `Имя: ${user.first_name}<br>ID: ${user.id}`;
-            }
+            document.getElementById(page + '-page').classList.add('active');
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            el.classList.add('active');
         }
 
-        function initWheel() {
-            const canvas = document.getElementById('wheelCanvas');
-            const ctx = canvas.getContext('2d');
-            const slice = (2 * Math.PI) / participants.length;
-            
-            ctx.clearRect(0,0,300,300);
-            participants.forEach((p, i) => {
-                ctx.beginPath();
-                ctx.fillStyle = p.color;
-                ctx.moveTo(150, 150);
-                ctx.arc(150, 150, 140, i * slice + currentRotation, (i+1) * slice + currentRotation);
-                ctx.fill();
-                ctx.save();
-                ctx.translate(150,150);
-                ctx.rotate(i * slice + slice/2 + currentRotation);
-                ctx.fillStyle = "white";
-                ctx.font = "20px Arial";
-                ctx.fillText(p.avatar, 80, 5);
-                ctx.restore();
-            });
+        // Логика онлайн-лобби
+        function createGame() {
+            if (myBalance < selectedBet) return alert("Недостаточно TON!");
+            socket.emit('createBet', { amount: selectedBet, userName: user.first_name });
+            tg.showConfirm(`Выставили ${selectedBet} TON. Ждем оппонента...`);
         }
 
-        function renderParticipants() {
-            const container = document.getElementById('participants');
-            container.innerHTML = '';
-            participants.forEach((p, i) => {
-                const div = document.createElement('div');
-                div.className = 'participant' + (selectedOpponent === i ? ' selected' : '');
-                div.innerHTML = `${p.avatar}<br>${p.name}`;
-                div.onclick = () => { selectedOpponent = i; renderParticipants(); };
-                container.appendChild(div);
-            });
-        }
-
-        function spin() {
-            if (isSpinning || selectedOpponent === null) {
-                if(selectedOpponent === null) alert("Выбери противника!");
+        socket.on('updateLobby', (games) => {
+            const lobby = document.getElementById('lobby');
+            if (games.length === 0) {
+                lobby.innerHTML = '<p style="color: #666;">Активных игр нет. Будь первым!</p>';
                 return;
             }
-            if (balance < 10) return alert("Нужно хотя бы 10 TON");
+            lobby.innerHTML = games.map(g => `
+                <div class="game-item">
+                    <span>${g.userName} (<strong>${g.amount} TON</strong>)</span>
+                    <button class="btn btn-accept" onclick="acceptGame('${g.id}', ${g.amount})">Принять</button>
+                </div>
+            `).join('');
+        });
 
-            balance -= 10;
-            updateUI();
+        function acceptGame(gameId, amount) {
+            if (myBalance < amount) return alert("У тебя меньше TON, чем в ставке!");
+            socket.emit('joinGame', { gameId, participantName: user.first_name });
+        }
+
+        // Логика анимации колеса (визуальная часть)
+        const canvas = document.getElementById('wheelCanvas');
+        const ctx = canvas.getContext('2d');
+        function drawWheel(rotation = 0) {
+            const colors = ['#ff5733', '#33ff57', '#3357ff', '#f333ff'];
+            const slice = (Math.PI * 2) / 4;
+            ctx.clearRect(0, 0, 300, 300);
+            for (let i = 0; i < 4; i++) {
+                ctx.beginPath();
+                ctx.fillStyle = colors[i];
+                ctx.moveTo(150, 150);
+                ctx.arc(150, 150, 140, i * slice + rotation, (i + 1) * slice + rotation);
+                ctx.fill();
+            }
+        }
+
+        socket.on('startGameAnimation', (data) => {
+            // Когда сервер говорит, что два игрока сошлись — крутим!
             isSpinning = true;
-            
-            const extraSpins = 5 + Math.random() * 5;
-            const duration = 3000;
-            const start = performance.now();
-            const startRotation = currentRotation;
-            const targetRotation = startRotation + extraSpins * Math.PI * 2;
-
-            function animate(now) {
-                const elapsed = now - start;
-                const progress = Math.min(elapsed / duration, 1);
-                const easeOut = 1 - Math.pow(1 - progress, 3);
-                
-                currentRotation = startRotation + (targetRotation - startRotation) * easeOut;
-                initWheel();
-
-                if (progress < 1) {
-                    requestAnimationFrame(animate);
-                } else {
+            let rotation = 0;
+            let speed = 0.5;
+            const timer = setInterval(() => {
+                rotation += speed;
+                drawWheel(rotation);
+                speed *= 0.98; // Замедление
+                if (speed < 0.01) {
+                    clearInterval(timer);
                     isSpinning = false;
-                    checkWinner();
+                    alert("Игра окончена! Победил: " + data.winner);
                 }
-            }
-            requestAnimationFrame(animate);
-        }
+            }, 30);
+        });
 
-        function checkWinner() {
-            const slice = (2 * Math.PI) / participants.length;
-            const normalized = (currentRotation + (Math.PI * 1.5)) % (Math.PI * 2);
-            const winnerIdx = participants.length - 1 - Math.floor(normalized / slice) % participants.length;
-            
-            if (winnerIdx === selectedOpponent) {
-                balance += 25;
-                showModal("ПОБЕДА!", "Ты выиграл 25 TON!");
-                tg.HapticFeedback.notificationOccurred('success');
-            } else {
-                showModal("ПРОИГРЫШ", "Победил " + participants[winnerIdx].name);
-            }
-            updateUI();
-        }
-
-        function showModal(title, text) {
-            document.getElementById('modalTitle').textContent = title;
-            document.getElementById('modalText').textContent = text;
-            document.getElementById('modal').classList.add('active');
-        }
-
-        function closeModal() { document.getElementById('modal').classList.remove('active'); }
-        
-        function claimFree() {
-            balance += 5;
-            updateUI();
-            alert("Получено 5 TON!");
-        }
-
-        renderParticipants();
-        initWheel();
-        updateUI();
+        drawWheel();
+        updateBalance();
     </script>
 </body>
 </html>
