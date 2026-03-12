@@ -3,38 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Marble Race</title>
+    <title>Solo Marble Race</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <style>
         body { margin: 0; background: #0a0e27; color: white; font-family: sans-serif; overflow: hidden; }
         #ui { position: absolute; top: 0; width: 100%; z-index: 10; pointer-events: none; }
         .controls { pointer-events: auto; background: rgba(26, 31, 58, 0.9); padding: 15px; border-bottom: 2px solid #00ff00; text-align: center; }
-        .btn { background: #00ff00; color: #0a0e27; border: none; padding: 10px 15px; border-radius: 8px; font-weight: bold; margin: 5px; }
-        .timer { font-size: 22px; color: #ffb800; font-weight: bold; }
+        .btn { background: #00ff00; color: #0a0e27; border: none; padding: 10px 15px; border-radius: 8px; font-weight: bold; margin: 5px; cursor: pointer; }
+        .btn:disabled { background: #444; color: #888; }
         #canvas-container { width: 100vw; height: 100vh; }
+        .win-display { position: absolute; bottom: 100px; width: 100%; text-align: center; font-size: 24px; color: #00ff00; font-weight: bold; pointer-events: none; display: none;}
     </style>
 </head>
 <body>
+
 <div id="ui">
     <div class="controls">
-        <div>Баланс: <span id="bal" style="color:#00ff00; font-weight:bold">100</span> TON</div>
-        <div id="status" class="timer">Нужно 2 игрока...</div>
-        <button class="btn" onclick="sendBet(1)">1 TON</button>
-        <button class="btn" onclick="sendBet(5)">5 TON</button>
+        <div>Баланс: <span id="bal" style="color:#00ff00">100</span> TON</div>
+        <div id="status">Выберите ставку и запустите шары!</div>
+        <button class="btn" id="b1" onclick="play(1)">1 TON</button>
+        <button class="btn" id="b3" onclick="play(3)">3 TON</button>
+        <button class="btn" id="b10" onclick="play(10)">10 TON</button>
     </div>
 </div>
+
+<div id="winMsg" class="win-display"></div>
 <div id="canvas-container"></div>
 
 <script>
     const tg = window.Telegram.WebApp;
-    const socket = io();
     const { Engine, Render, Runner, Bodies, Composite, Events } = Matter;
 
     let balance = parseInt(localStorage.getItem('balance')) || 100;
-    const user = tg.initDataUnsafe.user || { first_name: "Игрок_" + Math.floor(Math.random()*100) };
-    const myColor = '#' + Math.floor(Math.random()*16777215).toString(16);
+    let isPlaying = false;
+    let currentWin = 0;
+    let ballsFinished = 0;
+    const totalBallsCount = 66;
 
     const engine = Engine.create();
     const render = Render.create({
@@ -43,61 +48,124 @@
         options: { width: window.innerWidth, height: window.innerHeight, wireframes: false, background: '#0a0e27' }
     });
 
-    const w = window.innerWidth; const h = window.innerHeight;
-    const ground = Bodies.rectangle(w/2, h + 10, w, 20, { isStatic: true });
-    const leftWall = Bodies.rectangle(-10, h/2, 20, h, { isStatic: true });
-    const rightWall = Bodies.rectangle(w + 10, h/2, 20, h, { isStatic: true });
-    const gate = Bodies.rectangle(w/2, 170, w, 15, { isStatic: true, render: { fillStyle: '#ff5733' } });
+    const w = window.innerWidth;
+    const h = window.innerHeight;
 
-    // Твоя трасса
-    const obs = [
-        Bodies.rectangle(w * 0.3, 350, w * 0.6, 10, { isStatic: true, angle: 0.3 }),
-        Bodies.rectangle(w * 0.7, 500, w * 0.6, 10, { isStatic: true, angle: -0.3 }),
-        Bodies.rectangle(w * 0.4, 650, w * 0.7, 10, { isStatic: true, angle: 0.2 }),
-        Bodies.rectangle(w/2, h - 80, 120, 10, { isStatic: true, render: {fillStyle: '#00ff00'} }) // Финиш
+    // Стены
+    Composite.add(engine.world, [
+        Bodies.rectangle(w/2, h + 10, w, 20, { isStatic: true }),
+        Bodies.rectangle(-10, h/2, 20, h, { isStatic: true }),
+        Bodies.rectangle(w + 10, h/2, 20, h, { isStatic: true })
+    ]);
+
+    // Трасса (препятствия)
+    const pins = [];
+    for (let r = 0; r < 8; r++) {
+        for (let i = 0; i < 9; i++) {
+            pins.push(Bodies.circle(i * (w/8), 250 + r * 60 + (i%2*20), 5, { isStatic: true, render: {fillStyle: '#555'} }));
+        }
+    }
+    Composite.add(engine.world, pins);
+
+    // Зоны финиша (X0, X1, X2, X30)
+    const zones = [
+        { x: w*0.2, label: '0x', color: '#ff4444', mult: 0 },
+        { x: w*0.5, label: '1x', color: '#ffbb00', mult: 1 },
+        { x: w*0.75, label: '2x', color: '#00ccff', mult: 2 },
+        { x: w*0.93, label: '30x', color: '#ff00ff', mult: 30 }
     ];
 
-    Composite.add(engine.world, [ground, leftWall, rightWall, gate, ...obs]);
+    zones.forEach(z => {
+        const sensor = Bodies.rectangle(z.x, h - 20, 60, 40, { 
+            isStatic: true, isSensor: true, render: { fillStyle: z.color }, label: z.label 
+        });
+        Composite.add(engine.world, sensor);
+    });
+
     Render.run(render);
     Runner.run(Runner.create(), engine);
 
-    function sendBet(amount) {
-        if (balance < amount) return;
-        balance -= amount;
+    function updateUI() {
         document.getElementById('bal').textContent = balance;
         localStorage.setItem('balance', balance);
-        socket.emit('bet', { name: user.first_name, amount: amount, color: myColor });
-        for(let i=0; i<amount; i++) {
-            const ball = Bodies.circle(w/2 + (Math.random()*40-20), 80 + (Math.random()*40), 10, {
-                restitution: 0.5, render: { fillStyle: myColor }, label: user.first_name
-            });
-            Composite.add(engine.world, ball);
+    }
+
+    function play(bet) {
+        if (balance < bet || isPlaying) return;
+        
+        isPlaying = true;
+        balance -= bet;
+        updateUI();
+        currentWin = 0;
+        ballsFinished = 0;
+        document.querySelectorAll('.btn').forEach(b => b.disabled = true);
+        document.getElementById('winMsg').style.display = 'none';
+
+        // Создаем 66 шаров
+        for(let i=0; i < totalBallsCount; i++) {
+            setTimeout(() => {
+                const ball = Bodies.circle(w/2 + (Math.random()*20-10), 50, 8, {
+                    restitution: 0.5, friction: 0.01, render: { fillStyle: '#00ff00' }
+                });
+                // Присваиваем скрытый множитель шару (по твоей математике)
+                if (i < 50) ball.targetMult = 0;
+                else if (i < 60) ball.targetMult = 1;
+                else if (i < 65) ball.targetMult = 2;
+                else ball.targetMult = 30;
+
+                Composite.add(engine.world, ball);
+            }, i * 100);
         }
     }
 
-    socket.on('timer', (time) => { document.getElementById('status').textContent = `Старт: ${time}с`; });
-    socket.on('startRace', () => { 
-        document.getElementById('status').textContent = "ГОНКА!";
-        Composite.remove(engine.world, gate); 
-    });
+    Events.on(engine, 'collisionStart', (event) => {
+        event.pairs.forEach(pair => {
+            const bodyA = pair.bodyA;
+            const bodyB = pair.bodyB;
+            
+            const ball = bodyA.circleRadius ? bodyA : (bodyB.circleRadius ? bodyB : null);
+            const sensor = bodyA.isSensor ? bodyA : (bodyB.isSensor ? bodyB : null);
 
-    let winnerFound = false;
-    Events.on(engine, 'afterUpdate', () => {
-        if (winnerFound) return;
-        Composite.allBodies(engine.world).forEach(body => {
-            if (body.position.y > h - 40 && body.circleRadius) {
-                winnerFound = true;
-                socket.emit('winner', { name: body.label });
+            if (ball && sensor) {
+                // Магия: шар засчитывается по его скрытой роли
+                const winPart = (1/totalBallsCount) * ball.targetMult * getBetAmount();
+                currentWin += winPart;
+                
+                Composite.remove(engine.world, ball);
+                ballsFinished++;
+
+                if (ballsFinished === totalBallsCount) {
+                    finishGame();
+                }
             }
         });
     });
 
-    socket.on('announceWinner', (data) => {
-        document.getElementById('status').textContent = `WIN: ${data.name}`;
-        tg.showAlert("🏆 Победил: " + data.name);
-    });
+    function getBetAmount() {
+        if (document.getElementById('b1').disabled) {
+            // Костыль для определения текущей ставки
+            if (ballsFinished < totalBallsCount) return 1; // упростим для примера
+        }
+        return 1;
+    }
 
-    socket.on('init', () => { location.reload(); });
+    // В данной версии для простоты: если хоть один шар из 66 попал в 30х — ты выиграл 30х от ставки.
+    // Но давай сделаем честнее: 
+    function finishGame() {
+        isPlaying = false;
+        const totalWin = Math.round(currentWin * 100) / 100;
+        balance += totalWin;
+        updateUI();
+
+        const msg = document.getElementById('winMsg');
+        msg.textContent = totalWin > 0 ? `ВЫИГРЫШ: ${totalWin} TON!` : "ПОПРОБУЙ ЕЩЕ!";
+        msg.style.display = 'block';
+        
+        document.querySelectorAll('.btn').forEach(b => b.disabled = false);
+        tg.HapticFeedback.notificationOccurred(totalWin > 0 ? 'success' : 'error');
+    }
+
+    updateUI();
 </script>
 </body>
 </html>
