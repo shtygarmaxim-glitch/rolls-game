@@ -9,35 +9,51 @@ const io = new Server(server);
 
 app.use(express.static(__dirname));
 
-let players = {};
-let currentBets = [];
+let lobbyGames = [];
 
 io.on('connection', (socket) => {
     console.log('Игрок подключился:', socket.id);
 
-    // Когда игрок заходит, он отправляет свои данные из TG
-    socket.on('join', (userData) => {
-        players[socket.id] = { ...userData, socketId: socket.id };
-        io.emit('updatePlayers', Object.values(players));
-    });
+    // Отправляем текущее лобби новому игроку
+    socket.emit('updateLobby', lobbyGames);
 
     // Создание ставки
-    socket.on('createBet', (amount) => {
-        const newBet = {
-            id: Math.random().toString(36).substr(2, 9),
-            creator: players[socket.id],
-            amount: amount,
-            status: 'waiting'
+    socket.on('createBet', (data) => {
+        const newGame = { 
+            id: socket.id, 
+            amount: data.amount, 
+            userName: data.userName 
         };
-        currentBets.push(newBet);
-        io.emit('newBetCreated', currentBets);
+        // Удаляем старые ставки этого же игрока, чтобы не спамил
+        lobbyGames = lobbyGames.filter(g => g.id !== socket.id);
+        lobbyGames.push(newGame);
+        io.emit('updateLobby', lobbyGames);
+    });
+
+    // Когда второй игрок принимает вызов
+    socket.on('joinGame', (data) => {
+        const game = lobbyGames.find(g => g.id === data.gameId);
+        if (game) {
+            // Убираем игру из списка доступных
+            lobbyGames = lobbyGames.filter(g => g.id !== data.gameId);
+            io.emit('updateLobby', lobbyGames);
+            
+            // Магия: определяем победителя на сервере (50/50)
+            const winnerName = Math.random() > 0.5 ? game.userName : data.participantName;
+            
+            // Даем команду обоим игрокам запустить анимацию
+            io.emit('startGameAnimation', { 
+                winner: winnerName,
+                amount: game.amount 
+            });
+        }
     });
 
     socket.on('disconnect', () => {
-        delete players[socket.id];
-        io.emit('updatePlayers', Object.values(players));
+        lobbyGames = lobbyGames.filter(g => g.id !== socket.id);
+        io.emit('updateLobby', lobbyGames);
     });
 });
 
 const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => console.log(`Server on port ${PORT}`));
+server.listen(PORT, () => console.log('Сервер онлайн!'));
