@@ -3,31 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rolls Jackpot</title>
+    <title>Rolls Jackpot PvP</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { font-family: sans-serif; background: #0a0e27; color: white; text-align: center; padding: 10px; }
-        .stats { background: #1a1f3a; padding: 15px; border-radius: 15px; border: 1px solid #00ff00; margin-bottom: 15px; }
-        .timer-box { font-size: 24px; color: #ffb800; margin: 10px 0; font-weight: bold; min-height: 30px; }
-        .wheel-box { position: relative; width: 300px; height: 300px; margin: 0 auto; }
+        body { font-family: sans-serif; background: #0a0e27; color: white; text-align: center; padding: 10px; margin: 0; }
+        .stats { background: #1a1f3a; padding: 15px; border-radius: 15px; border: 1px solid #00ff00; margin-bottom: 10px; }
+        .timer-box { font-size: 20px; color: #ffb800; font-weight: bold; margin: 5px 0; height: 25px; }
+        .wheel-box { position: relative; width: 280px; height: 280px; margin: 0 auto; }
         canvas { width: 100%; height: 100%; }
-        .pointer { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-top: 25px solid #00ff00; z-index: 10; }
-        .bet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin: 10px 0; }
-        .btn { background: #00ff00; color: #0a0e27; padding: 15px; border: none; border-radius: 10px; width: 100%; font-weight: bold; }
-        .player-item { display: flex; justify-content: space-between; padding: 8px; border-bottom: 1px solid #2a2f4a; font-size: 14px; }
+        .pointer { position: absolute; top: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent; border-top: 20px solid #00ff00; z-index: 10; }
+        .bet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+        .bet-btn { background: #2a2f4a; border: 1px solid #00ff00; color: white; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        #playerList { margin-top: 15px; background: #1a1f3a; border-radius: 10px; padding: 10px; text-align: left; }
+        .player-item { display: flex; justify-content: space-between; border-bottom: 1px solid #2a2f4a; padding: 5px 0; font-size: 14px; }
     </style>
 </head>
 <body>
 
     <div class="stats">
-        <div>Ваш баланс: <b id="bal" style="color:#00ff00">100</b> TON</div>
-        <div class="timer-box" id="timerDisplay">Ожидание игроков...</div>
-        <div class="bet-grid" id="betBtns">
-            <button onclick="join(1)" style="padding:10px">1</button>
-            <button onclick="join(2)" style="padding:10px">2</button>
-            <button onclick="join(5)" style="padding:10px">5</button>
-            <button onclick="join(10)" style="padding:10px">10</button>
+        <div>Баланс: <b id="bal" style="color:#00ff00">100</b> TON</div>
+        <div id="timerDisplay" class="timer-box">Ждем игроков...</div>
+        <div class="bet-grid">
+            <button class="bet-btn" onclick="join(1)">1</button>
+            <button class="bet-btn" onclick="join(2)">2</button>
+            <button class="bet-btn" onclick="join(5)">5</button>
+            <button class="bet-btn" onclick="join(10)">10</button>
         </div>
     </div>
 
@@ -36,14 +37,13 @@
         <canvas id="wheelCanvas" width="400" height="400"></canvas>
     </div>
 
-    <div id="playerList" style="margin-top:20px; background:#1a1f3a; border-radius:10px; padding:10px"></div>
+    <div id="playerList"></div>
 
     <script>
         const tg = window.Telegram.WebApp;
         const socket = io();
         let balance = parseInt(localStorage.getItem('balance')) || 100;
-        let currentRoom = { players: [] };
-        const user = tg.initDataUnsafe.user || { first_name: "Игрок_" + Math.floor(Math.random()*100) };
+        const user = tg.initDataUnsafe.user || { first_name: "Игрок_" + Math.floor(Math.random()*99) };
 
         function updateBal() {
             document.getElementById('bal').textContent = balance;
@@ -51,52 +51,50 @@
         }
 
         function join(amt) {
-            if (balance < amt) return alert("Мало TON");
+            if (balance < amt) return alert("Недостаточно TON");
             balance -= amt;
             updateBal();
             socket.emit('joinGame', { amount: amt, userName: user.first_name });
-            tg.HapticFeedback.impactOccurred('medium');
+            tg.HapticFeedback.impactOccurred('light');
         }
 
         socket.on('updateRoom', (room) => {
-            currentRoom = room;
-            renderPlayers();
+            renderPlayers(room.players);
             if (room.status === 'waiting') {
-                document.getElementById('timerDisplay').textContent = "Ожидание игроков (минимум 2)...";
-                drawWheel(0);
+                document.getElementById('timerDisplay').textContent = "Нужно минимум 2 игрока";
+                drawWheel(0, room.players);
             }
         });
 
         socket.on('timerTick', (sec) => {
-            document.getElementById('timerDisplay').textContent = `До начала: ${sec} сек!`;
-            tg.HapticFeedback.selectionChanged();
+            document.getElementById('timerDisplay').textContent = `Старт через: ${sec} сек`;
         });
 
         socket.on('startGameAnimation', (data) => {
             let rotation = 0;
-            let speed = 0.7;
+            let speed = 0.6;
             const interval = setInterval(() => {
                 rotation += speed;
                 drawWheel(rotation, data.players);
                 speed *= 0.985;
                 if (speed < 0.005) {
                     clearInterval(interval);
-                    document.getElementById('timerDisplay').textContent = `Победил: ${data.winner}!`;
-                    if (user.first_name === data.winner) {
+                    document.getElementById('timerDisplay').textContent = `Победил: ${data.winner}`;
+                    if (socket.id === data.winnerSocketId) {
                         balance += data.totalBank * 0.95;
                         updateBal();
-                        tg.showAlert("💰 ВЫ ВЫИГРАЛИ " + (data.totalBank * 0.95).toFixed(2) + " TON!");
+                        tg.showAlert("🎉 ВЫИГРЫШ: " + (data.totalBank * 0.95).toFixed(2) + " TON");
                     }
                 }
             }, 30);
         });
 
-        function renderPlayers() {
+        function renderPlayers(players) {
             const list = document.getElementById('playerList');
-            const total = currentRoom.players.reduce((s, p) => s + p.amount, 0);
-            list.innerHTML = `<b>БАНК: ${total} TON</b><br>`;
-            currentRoom.players.forEach(p => {
-                const perc = ((p.amount / total) * 100).toFixed(0);
+            const total = players.reduce((s, p) => s + p.amount, 0);
+            list.innerHTML = `<b style="display:block;margin-bottom:5px">БАНК: ${total} TON</b>`;
+            players.forEach(p => {
+                const perc = total > 0 ? ((p.amount / total) * 100).toFixed(0) : 0;
                 list.innerHTML += `<div class="player-item">
                     <span style="color:${p.color}">● ${p.name}</span>
                     <span>${p.amount} TON (${perc}%)</span>
@@ -105,40 +103,26 @@
         }
 
         const ctx = document.getElementById('wheelCanvas').getContext('2d');
-        function drawWheel(rot, players = currentRoom.players) {
+        function drawWheel(rot, players) {
             ctx.clearRect(0,0,400,400);
-            if (players.length === 0) {
+            if (!players || players.length === 0) {
                 ctx.beginPath(); ctx.fillStyle = '#2a2f4a'; ctx.arc(200,200,180,0,Math.PI*2); ctx.fill();
                 return;
             }
-            
             const total = players.reduce((s, p) => s + p.amount, 0);
             let currentAngle = rot;
-
             players.forEach(p => {
                 const sliceAngle = (p.amount / total) * Math.PI * 2;
-                ctx.beginPath();
-                ctx.fillStyle = p.color;
-                ctx.moveTo(200,200);
-                ctx.arc(200,200,180, currentAngle, currentAngle + sliceAngle);
-                ctx.fill();
-                ctx.strokeStyle = '#0a0e27'; ctx.lineWidth = 2; ctx.stroke();
-
-                // Текст (имя)
-                ctx.save();
-                ctx.translate(200,200);
-                ctx.rotate(currentAngle + sliceAngle/2);
-                ctx.fillStyle = "white";
-                ctx.font = "bold 14px sans-serif";
-                ctx.fillText(p.name, 70, 5);
-                ctx.restore();
-
+                ctx.beginPath(); ctx.fillStyle = p.color; ctx.moveTo(200,200);
+                ctx.arc(200,200,180, currentAngle, currentAngle + sliceAngle); ctx.fill();
+                ctx.save(); ctx.translate(200,200); ctx.rotate(currentAngle + sliceAngle/2);
+                ctx.fillStyle = "white"; ctx.font = "bold 16px Arial"; ctx.fillText(p.name, 80, 5); ctx.restore();
                 currentAngle += sliceAngle;
             });
         }
 
-        drawWheel(0);
         updateBal();
+        drawWheel(0, []);
     </script>
 </body>
 </html>
