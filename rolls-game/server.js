@@ -1,109 +1,62 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-    cors: { origin: "*" },
-    transports: ['websocket', 'polling']
-});
+const io = new Server(server, { cors: { origin: "*" } });
 
 app.use(express.static(__dirname));
 
-let gameRoom = {
+let game = {
     players: [],
-    timer: null,
-    status: 'waiting',
-    timeLeft: 20
+    status: 'waiting', 
+    timeLeft: 10
 };
 
 io.on('connection', (socket) => {
-    console.log('Новое подключение:', socket.id);
-    socket.emit('updateRoom', gameRoom);
+    socket.emit('init', game);
 
-    socket.on('joinGame', (userData) => {
-        console.log('Попытка входа:', userData.userName, 'Ставка:', userData.amount);
+    socket.on('bet', (data) => {
+        if (game.status === 'racing') return;
         
-        if (gameRoom.status === 'spinning') return;
+        game.players.push({
+            id: socket.id,
+            name: data.name,
+            color: data.color,
+            balls: data.amount 
+        });
 
-        let player = gameRoom.players.find(p => p.id === socket.id);
-        if (player) {
-            player.amount += userData.amount;
-        } else {
-            gameRoom.players.push({
-                id: socket.id,
-                name: userData.userName,
-                amount: userData.amount,
-                color: '#' + Math.floor(Math.random()*16777215).toString(16)
-            });
+        if (game.players.length >= 2 && game.status === 'waiting') {
+            startTimer();
         }
-
-        if (gameRoom.players.length >= 2 && gameRoom.status === 'waiting') {
-            startCountdown();
-        }
-
-        io.emit('updateRoom', gameRoom);
+        io.emit('updatePlayers', game.players);
     });
 
-    function startCountdown() {
-        gameRoom.status = 'counting';
-        gameRoom.timeLeft = 20;
-        console.log('Таймер запущен');
-        
-        if (gameRoom.timer) clearInterval(gameRoom.timer);
-        
-        gameRoom.timer = setInterval(() => {
-            gameRoom.timeLeft--;
-            io.emit('timerTick', gameRoom.timeLeft);
-
-            if (gameRoom.timeLeft <= 0) {
-                clearInterval(gameRoom.timer);
-                finishGame();
+    function startTimer() {
+        game.status = 'counting';
+        game.timeLeft = 10;
+        let timer = setInterval(() => {
+            game.timeLeft--;
+            io.emit('timer', game.timeLeft);
+            if (game.timeLeft <= 0) {
+                clearInterval(timer);
+                game.status = 'racing';
+                io.emit('startRace');
+                setTimeout(resetGame, 25000);
             }
         }, 1000);
     }
 
-    function finishGame() {
-        if (gameRoom.players.length < 2) {
-            gameRoom.status = 'waiting';
-            io.emit('updateRoom', gameRoom);
-            return;
-        }
-
-        gameRoom.status = 'spinning';
-        const totalBank = gameRoom.players.reduce((sum, p) => sum + p.amount, 0);
-        let random = Math.random() * totalBank;
-        let currentSum = 0;
-        let winner = gameRoom.players[0];
-
-        for (let p of gameRoom.players) {
-            currentSum += p.amount;
-            if (random <= currentSum) {
-                winner = p;
-                break;
-            }
-        }
-
-        console.log('Победитель определен:', winner.name);
-        io.emit('startGameAnimation', { 
-            winner: winner.name, 
-            winnerSocketId: winner.id,
-            players: gameRoom.players, 
-            totalBank: totalBank 
-        });
-
-        setTimeout(() => {
-            gameRoom = { players: [], timer: null, status: 'waiting', timeLeft: 20 };
-            io.emit('updateRoom', gameRoom);
-        }, 12000);
+    function resetGame() {
+        game = { players: [], status: 'waiting', timeLeft: 10 };
+        io.emit('init', game);
     }
 
-    socket.on('disconnect', () => {
-        console.log('Игрок отключился:', socket.id);
+    socket.on('winner', (data) => {
+        io.emit('announceWinner', data);
     });
 });
 
 const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => console.log('=== СЕРВЕР ЗАПУЩЕН НА ПОРТУ', PORT, '==='));
+server.listen(PORT, () => console.log('Physics Server Live on rolls-game'));
