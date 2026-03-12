@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Solo Marble</title>
+    <title>Solo Marble Pro</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <style>
         body { margin: 0; background: #0a0e27; color: white; font-family: sans-serif; overflow: hidden; }
-        .ui { position: absolute; top: 0; width: 100%; padding: 15px; background: rgba(26, 31, 58, 0.9); border-bottom: 2px solid #00ff00; text-align: center; box-sizing: border-box; z-index: 10; }
+        .ui { position: absolute; top: 0; width: 100%; padding: 15px; background: rgba(26, 31, 58, 0.95); border-bottom: 2px solid #00ff00; text-align: center; box-sizing: border-box; z-index: 100; }
         .btn { background: #00ff00; color: #0a0e27; border: none; padding: 12px 18px; border-radius: 8px; font-weight: bold; margin: 5px; cursor: pointer; font-size: 16px; }
-        .btn:disabled { background: #444; color: #888; cursor: not-allowed; }
-        #canvas-container { width: 100vw; height: 100vh; }
-        .win-popup { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 32px; color: #00ff00; font-weight: bold; text-shadow: 0 0 20px #00ff00; display: none; z-index: 20; pointer-events: none; }
+        .btn:disabled { background: #444; color: #888; }
+        #canvas-container { width: 100vw; height: 100vh; cursor: grab; }
+        .win-popup { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 40px; font-weight: bold; text-align: center; display: none; z-index: 200; pointer-events: none; text-shadow: 0 0 20px rgba(0,0,0,0.5); }
     </style>
 </head>
 <body>
@@ -31,54 +31,71 @@
 
 <script>
     const tg = window.Telegram.WebApp;
-    const { Engine, Render, Runner, Bodies, Composite, Events } = Matter;
+    const { Engine, Render, Runner, Bodies, Composite, Events, Body } = Matter;
 
     let balance = parseInt(localStorage.getItem('balance')) || 100;
     let isRacing = false;
-    let finishedBalls = 0;
-    let totalWinSession = 0;
+    let firstBallTouched = false;
     const TOTAL_BALLS = 66;
+    const WORLD_HEIGHT = 3000; // ОГРОМНАЯ ПОЛОСА
 
     const engine = Engine.create();
+    engine.gravity.y = 1.2; // Чуть сильнее гравитация для скорости
+
     const w = window.innerWidth;
     const h = window.innerHeight;
 
     const render = Render.create({
         element: document.getElementById('canvas-container'),
         engine: engine,
-        options: { width: w, height: h, wireframes: false, background: '#0a0e27' }
+        options: { 
+            width: w, 
+            height: h, 
+            wireframes: false, 
+            background: '#0a0e27',
+            hasBounds: true // Позволяет камере двигаться за шарами
+        }
     });
 
-    // Границы
-    Composite.add(engine.world, [
-        Bodies.rectangle(w/2, h + 10, w, 20, { isStatic: true }),
-        Bodies.rectangle(-10, h/2, 20, h, { isStatic: true }),
-        Bodies.rectangle(w + 10, h/2, 20, h, { isStatic: true })
-    ]);
-
-    // Трасса (препятствия как на твоем чертеже)
-    const pins = [
-        Bodies.rectangle(w * 0.3, 300, w * 0.5, 10, { isStatic: true, angle: 0.3, render: {fillStyle: '#333'} }),
-        Bodies.rectangle(w * 0.7, 450, w * 0.5, 10, { isStatic: true, angle: -0.3, render: {fillStyle: '#333'} }),
-        Bodies.rectangle(w * 0.4, 600, w * 0.6, 10, { isStatic: true, angle: 0.2, render: {fillStyle: '#333'} })
+    // Создаем длинную трассу
+    const walls = [
+        Bodies.rectangle(w/2, WORLD_HEIGHT + 50, w * 2, 100, { isStatic: true, render: {fillStyle: '#00ff00'} }), // Финишный пол
+        Bodies.rectangle(-20, WORLD_HEIGHT/2, 40, WORLD_HEIGHT, { isStatic: true }), // Лево
+        Bodies.rectangle(w + 20, WORLD_HEIGHT/2, 40, WORLD_HEIGHT, { isStatic: true }) // Право
     ];
-    Composite.add(engine.world, pins);
 
-    // Корзины множителей
-    const zones = [
+    // Генерируем много препятствий (гвоздиков) по всей длине
+    const pins = [];
+    for (let l = 0; l < 40; l++) {
+        let rowPins = (l % 2 === 0) ? 8 : 7;
+        let spacing = w / rowPins;
+        for (let i = 0; i <= rowPins; i++) {
+            pins.push(Bodies.circle(i * spacing + (l % 2 ? spacing/2 : 0), 400 + l * 65, 6, { 
+                isStatic: true, 
+                render: { fillStyle: '#444' },
+                restitution: 1.2 
+            }));
+        }
+    }
+
+    // Финишные зоны (визуал)
+    const zoneData = [
         { x: w * 0.15, label: '0x', color: '#ff4444', mult: 0 },
-        { x: w * 0.4, label: '1x', color: '#ffbb00', mult: 1 },
-        { x: w * 0.65, label: '2x', color: '#00ccff', mult: 2 },
-        { x: w * 0.9, label: '30x', color: '#ff00ff', mult: 30 }
+        { x: w * 0.40, label: '1x', color: '#0066ff', mult: 1 },
+        { x: w * 0.65, label: '2x', color: '#ffbb00', mult: 2 },
+        { x: w * 0.90, label: '30x', color: 'rainbow', mult: 30 }
     ];
 
-    zones.forEach(z => {
-        const sensor = Bodies.rectangle(z.x, h - 30, 50, 40, { 
-            isStatic: true, isSensor: true, render: { fillStyle: z.color }, label: z.label 
+    zoneData.forEach(z => {
+        const sensor = Bodies.rectangle(z.x, WORLD_HEIGHT - 20, w * 0.22, 60, { 
+            isStatic: true, isSensor: true, 
+            render: { fillStyle: z.color === 'rainbow' ? '#ffffff' : z.color }, 
+            label: 'ZONE_' + z.mult 
         });
         Composite.add(engine.world, sensor);
     });
 
+    Composite.add(engine.world, [...walls, ...pins]);
     Render.run(render);
     Runner.run(Runner.create(), engine);
 
@@ -89,69 +106,101 @@
 
     function startGame(bet) {
         if (balance < bet || isRacing) return;
-
         isRacing = true;
+        firstBallTouched = false;
         balance -= bet;
         updateBal();
-        finishedBalls = 0;
-        totalWinSession = 0;
+        
         document.getElementById('winPopup').style.display = 'none';
         document.querySelectorAll('.btn').forEach(b => b.disabled = true);
 
+        // Очистка старых шаров
+        const allBodies = Composite.allBodies(engine.world);
+        allBodies.forEach(b => { if(!b.isStatic) Composite.remove(engine.world, b); });
+
+        // Высыпаем шары
         for (let i = 0; i < TOTAL_BALLS; i++) {
             setTimeout(() => {
-                let m;
-                if (i < 50) m = 0;      // 50 шаров = 0х
-                else if (i < 60) m = 1; // 10 шаров = 1х
-                else if (i < 65) m = 2; // 5 шаров = 2х
-                else m = 30;            // 1 шар = 30х
+                let m, col, txt;
+                if (i < 50) { m = 0; col = '#ff4444'; txt = '0x'; }
+                else if (i < 60) { m = 1; col = '#0066ff'; txt = '1x'; }
+                else if (i < 65) { m = 2; col = '#ffbb00'; txt = '2x'; }
+                else { m = 30; col = '#ff00ff'; txt = '30x'; }
 
-                const ball = Bodies.circle(w/2 + (Math.random()*40-20), 80, 8, {
-                    restitution: 0.5, 
-                    render: { fillStyle: '#00ff00' },
+                const ball = Bodies.circle(w/2 + (Math.random()*60-30), 100, 14, {
+                    restitution: 0.6, friction: 0.001,
+                    render: { fillStyle: col },
+                    label: 'BALL',
                     customMult: m,
-                    betRef: bet
+                    customTxt: txt,
+                    betAmount: bet
                 });
                 Composite.add(engine.world, ball);
-            }, i * 50);
+            }, i * 40);
         }
     }
 
+    // Слежение камеры и отрисовка текста на шарах
+    Events.on(render, 'afterRender', () => {
+        const context = render.context;
+        const balls = Composite.allBodies(engine.world).filter(b => b.label === 'BALL');
+        
+        if (balls.length > 0 && isRacing) {
+            // Центрируем камеру по самому нижнему шару
+            let lowestY = Math.max(...balls.map(b => b.position.y));
+            let targetY = lowestY - h/2;
+            if (targetY < 0) targetY = 0;
+            if (targetY > WORLD_HEIGHT - h) targetY = WORLD_HEIGHT - h;
+            
+            Render.lookAt(render, {
+                min: { x: 0, y: targetY },
+                max: { x: w, y: targetY + h }
+            });
+        }
+
+        // Рисуем текст 0x, 1x на шарах
+        context.font = "bold 12px Arial";
+        context.textAlign = "center";
+        context.fillStyle = "white";
+        balls.forEach(ball => {
+            context.fillText(ball.customTxt, ball.position.x, ball.position.y + 5);
+        });
+    });
+
     Events.on(engine, 'collisionStart', (event) => {
+        if (firstBallTouched) return;
+
         event.pairs.forEach(pair => {
-            const ball = pair.bodyA.circleRadius ? pair.bodyA : (pair.bodyB.circleRadius ? pair.bodyB : null);
-            const sensor = pair.bodyA.isSensor ? pair.bodyA : (pair.bodyB.isSensor ? pair.bodyB : null);
+            const bodyA = pair.bodyA;
+            const bodyB = pair.bodyB;
+            const ball = bodyA.label === 'BALL' ? bodyA : (bodyB.label === 'BALL' ? bodyB : null);
+            const zone = bodyA.label.startsWith('ZONE_') ? bodyA : (bodyB.label.startsWith('ZONE_') ? bodyB : null);
 
-            if (ball && sensor) {
-                // Математика: каждый шар приносит часть общей ставки * множитель
-                const winPart = (ball.betRef / TOTAL_BALLS) * ball.customMult;
-                totalWinSession += winPart;
-                
-                Composite.remove(engine.world, ball);
-                finishedBalls++;
-
-                if (finishedBalls === TOTAL_BALLS) {
-                    endGame();
-                }
+            if (ball && zone && !firstBallTouched) {
+                firstBallTouched = true;
+                const multiplier = parseInt(zone.label.split('_')[1]);
+                handleWin(multiplier, ball.betAmount);
             }
         });
     });
 
-    function endGame() {
-        isRacing = false;
-        const finalWin = Math.round(totalWinSession * 100) / 100;
-        balance += finalWin;
+    function handleWin(mult, bet) {
+        const winAmount = bet * mult;
+        balance += winAmount;
         updateBal();
 
         const pop = document.getElementById('winPopup');
-        pop.textContent = finalWin > 0 ? `+${finalWin} TON` : "0 TON";
         pop.style.display = 'block';
+        pop.style.color = mult === 0 ? '#ff4444' : (mult === 30 ? '#ff00ff' : '#00ff00');
+        pop.innerHTML = mult > 0 ? `ПЕРВЫМ ПРИШЕЛ ${mult}x!<br>ВЫИГРЫШ: ${winAmount} TON` : `ПЕРВЫМ ПРИШЕЛ 0x...<br>СТАВКА ПРОИГРАНА`;
 
-        document.querySelectorAll('.btn').forEach(b => b.disabled = false);
-        tg.HapticFeedback.notificationOccurred(finalWin > 0 ? 'success' : 'warning');
+        tg.HapticFeedback.notificationOccurred(mult > 0 ? 'success' : 'error');
+        
+        setTimeout(() => {
+            isRacing = false;
+            document.querySelectorAll('.btn').forEach(b => b.disabled = false);
+        }, 3000);
     }
-
-    updateBal();
 </script>
 </body>
 </html>
