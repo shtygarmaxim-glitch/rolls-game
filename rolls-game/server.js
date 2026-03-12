@@ -5,7 +5,10 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+    cors: { origin: "*" },
+    transports: ['websocket', 'polling']
+});
 
 app.use(express.static(__dirname));
 
@@ -17,12 +20,14 @@ let gameRoom = {
 };
 
 io.on('connection', (socket) => {
+    console.log('Новое подключение:', socket.id);
     socket.emit('updateRoom', gameRoom);
 
     socket.on('joinGame', (userData) => {
+        console.log('Попытка входа:', userData.userName, 'Ставка:', userData.amount);
+        
         if (gameRoom.status === 'spinning') return;
 
-        // Ищем игрока по socket.id, чтобы не было дублей и пропаданий
         let player = gameRoom.players.find(p => p.id === socket.id);
         if (player) {
             player.amount += userData.amount;
@@ -35,7 +40,6 @@ io.on('connection', (socket) => {
             });
         }
 
-        // Запуск таймера, если зашло 2+ человека
         if (gameRoom.players.length >= 2 && gameRoom.status === 'waiting') {
             startCountdown();
         }
@@ -46,6 +50,7 @@ io.on('connection', (socket) => {
     function startCountdown() {
         gameRoom.status = 'counting';
         gameRoom.timeLeft = 20;
+        console.log('Таймер запущен');
         
         if (gameRoom.timer) clearInterval(gameRoom.timer);
         
@@ -63,12 +68,12 @@ io.on('connection', (socket) => {
     function finishGame() {
         if (gameRoom.players.length < 2) {
             gameRoom.status = 'waiting';
+            io.emit('updateRoom', gameRoom);
             return;
         }
 
         gameRoom.status = 'spinning';
         const totalBank = gameRoom.players.reduce((sum, p) => sum + p.amount, 0);
-        
         let random = Math.random() * totalBank;
         let currentSum = 0;
         let winner = gameRoom.players[0];
@@ -81,6 +86,7 @@ io.on('connection', (socket) => {
             }
         }
 
+        console.log('Победитель определен:', winner.name);
         io.emit('startGameAnimation', { 
             winner: winner.name, 
             winnerSocketId: winner.id,
@@ -91,13 +97,13 @@ io.on('connection', (socket) => {
         setTimeout(() => {
             gameRoom = { players: [], timer: null, status: 'waiting', timeLeft: 20 };
             io.emit('updateRoom', gameRoom);
-        }, 10000);
+        }, 12000);
     }
 
     socket.on('disconnect', () => {
-        // Ставки остаются в банке, даже если игрок вышел
+        console.log('Игрок отключился:', socket.id);
     });
 });
 
 const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => console.log('Multiplayer Server Live!'));
+server.listen(PORT, () => console.log('=== СЕРВЕР ЗАПУЩЕН НА ПОРТУ', PORT, '==='));
