@@ -1,154 +1,118 @@
-// ----- Инициализация -----
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Мины с балансом</title>
+<style>
+    body { margin:0; font-family:sans-serif; background:#0a0e27; color:white; display:flex; flex-direction:column; align-items:center; padding:20px; }
+    .ui { text-align:center; margin-bottom:10px; }
+    .grid { display:grid; grid-template-columns: repeat(5, 60px); gap:5px; margin-top:20px; }
+    .cell { width:60px; height:60px; background:#1a1f3a; display:flex; align-items:center; justify-content:center; cursor:pointer; font-weight:bold; font-size:18px; border-radius:5px; }
+    .cell.revealed { background:#444; cursor:default; }
+    .cell.mine { background:#ff4444; color:#fff; }
+    .cell.safe { background:#00ff00; color:#000; }
+    .btn { background:#00ff00; color:#0a0e27; border:none; padding:10px 15px; margin:5px; font-weight:bold; border-radius:5px; cursor:pointer; }
+    select { margin:5px; padding:5px; border-radius:5px; font-weight:bold; }
+</style>
+</head>
+<body>
+
+<div class="ui">
+    Баланс: <span id="bal">100</span> TON<br>
+    Ставка: <select id="bet">
+        <option value="1">1 TON</option>
+        <option value="3">3 TON</option>
+        <option value="5">5 TON</option>
+        <option value="10">10 TON</option>
+    </select>
+    Мины: <select id="mines">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+    </select><br>
+    <button class="btn" id="startBtn">Начать игру</button>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<script>
+const gridEl = document.getElementById('grid');
+const balEl = document.getElementById('bal');
+const startBtn = document.getElementById('startBtn');
+const betEl = document.getElementById('bet');
+const minesEl = document.getElementById('mines');
+
 let balance = Number(localStorage.getItem('balance')) || 100;
-let isRacing = false;
-let firstBallTouched = false;
-const TOTAL_BALLS = 66;
-const WORLD_HEIGHT = 3000;
+let gameActive = false;
+let cells = [];
+let mineIndexes = [];
 
 function updateBal() {
-    document.getElementById('bal').textContent = balance.toFixed(2);
+    balEl.textContent = balance.toFixed(2);
     localStorage.setItem('balance', balance);
 }
 
-// ----- Создаём движок и рендер -----
-const engine = Matter.Engine.create();
-engine.gravity.y = 1.2;
+// Добавляем каждые 10 минут +10 TON
+setInterval(()=>{
+    balance += 10;
+    updateBal();
+}, 10*60*1000); // 10 минут в мс
 
-const w = window.innerWidth;
-const h = window.innerHeight;
-
-const render = Matter.Render.create({
-    element: document.getElementById('canvas-container'),
-    engine: engine,
-    options: {
-        width: w,
-        height: h,
-        wireframes: false,
-        background: '#0a0e27',
-        hasBounds: true
+function startGame() {
+    const bet = Number(betEl.value);
+    const mineCount = Number(minesEl.value);
+    if(balance < bet){
+        alert('Недостаточно TON!');
+        return;
     }
-});
-
-// ----- Создаём стены и препятствия -----
-const walls = [
-    Matter.Bodies.rectangle(w/2, WORLD_HEIGHT + 50, w*2, 100, { isStatic: true, render: {fillStyle:'#00ff00'} }),
-    Matter.Bodies.rectangle(-20, WORLD_HEIGHT/2, 40, WORLD_HEIGHT, { isStatic: true }),
-    Matter.Bodies.rectangle(w+20, WORLD_HEIGHT/2, 40, WORLD_HEIGHT, { isStatic: true })
-];
-
-const pins = [];
-for(let l=0; l<40; l++){
-    let rowPins = (l % 2 === 0) ? 8 : 7;
-    let spacing = w / rowPins;
-    for(let i=0; i<=rowPins; i++){
-        pins.push(Matter.Bodies.circle(i*spacing + (l%2?spacing/2:0), 400 + l*65, 6, {
-            isStatic:true, render:{fillStyle:'#444'}, restitution:1.2
-        }));
-    }
-}
-
-// ----- Финишные зоны -----
-const zoneData = [
-    { x: w*0.15, label:'0x', color:'#ff4444', mult:0 },
-    { x: w*0.40, label:'1x', color:'#0066ff', mult:1 },
-    { x: w*0.65, label:'2x', color:'#ffbb00', mult:2 },
-    { x: w*0.90, label:'30x', color:'#ff00ff', mult:30 }
-];
-
-zoneData.forEach(z=>{
-    const sensor = Matter.Bodies.rectangle(z.x, WORLD_HEIGHT-20, w*0.22, 60, {
-        isStatic:true, isSensor:true, render:{fillStyle: z.color}, label:'ZONE_'+z.mult
-    });
-    Matter.Composite.add(engine.world, sensor);
-});
-
-Matter.Composite.add(engine.world, [...walls, ...pins]);
-Matter.Render.run(render);
-Matter.Runner.run(Matter.Runner.create(), engine);
-
-// ----- Запуск игры -----
-function startGame(bet){
-    if(balance < bet || isRacing) return;
-    isRacing = true;
-    firstBallTouched = false;
     balance -= bet;
     updateBal();
-    document.getElementById('winPopup').style.display='none';
-    document.querySelectorAll('.btn').forEach(b=>b.disabled=true);
-
-    // Очистка старых шаров
-    Matter.Composite.allBodies(engine.world).forEach(b=>{
-        if(!b.isStatic) Matter.Composite.remove(engine.world, b);
-    });
-
-    // Высыпаем шары с небольшим интервалом
-    for(let i=0; i<TOTAL_BALLS; i++){
-        setTimeout(()=>{
-            let m, col, txt;
-            if(i<50){ m=0; col='#ff4444'; txt='0x'; }
-            else if(i<60){ m=1; col='#0066ff'; txt='1x'; }
-            else if(i<65){ m=2; col='#ffbb00'; txt='2x'; }
-            else{ m=30; col='#ff00ff'; txt='30x'; }
-
-            const ball = Matter.Bodies.circle(w/2 + (Math.random()*60-30), 100, 14, {
-                restitution:0.6, friction:0.001,
-                render:{fillStyle: col}, label:'BALL',
-                customMult: m, customTxt: txt, betAmount: bet
-            });
-            Matter.Composite.add(engine.world, ball);
-        }, i*30);
+    gameActive = true;
+    gridEl.innerHTML='';
+    cells=[];
+    mineIndexes = [];
+    // генерируем мины
+    while(mineIndexes.length < mineCount){
+        const idx = Math.floor(Math.random()*25);
+        if(!mineIndexes.includes(idx)) mineIndexes.push(idx);
+    }
+    for(let i=0;i<25;i++){
+        const cell = document.createElement('div');
+        cell.className='cell';
+        cell.dataset.index=i;
+        cell.addEventListener('click',()=>onCellClick(i,bet));
+        gridEl.appendChild(cell);
+        cells.push(cell);
     }
 }
 
-// ----- Камера и отрисовка текста -----
-Matter.Events.on(render, 'afterRender', ()=>{
-    const context = render.context;
-    const balls = Matter.Composite.allBodies(engine.world).filter(b=>b.label==='BALL');
-
-    if(balls.length>0 && isRacing){
-        // Центрируем камеру по самому нижнему шару
-        let lowestY = Math.max(...balls.map(b=>b.position.y));
-        let targetY = Math.min(Math.max(lowestY - h/2, 0), WORLD_HEIGHT - h);
-        Matter.Render.lookAt(render, {min:{x:0,y:targetY}, max:{x:w,y:targetY+h}});
-    }
-
-    // Рисуем текст на шарах
-    context.font="bold 12px Arial";
-    context.textAlign="center";
-    context.fillStyle="white";
-    balls.forEach(b=>{
-        context.fillText(b.customTxt, b.position.x, b.position.y + 5);
-    });
-});
-
-// ----- Обработка выигрыша -----
-Matter.Events.on(engine, 'collisionStart', event=>{
-    if(firstBallTouched) return;
-    event.pairs.forEach(pair=>{
-        const ball = [pair.bodyA, pair.bodyB].find(b=>b.label==='BALL');
-        const zone = [pair.bodyA, pair.bodyB].find(b=>b.label.startsWith('ZONE_'));
-        if(ball && zone){
-            firstBallTouched=true;
-            const mult = parseInt(zone.label.split('_')[1]);
-            handleWin(mult, ball.betAmount);
+function onCellClick(idx,bet){
+    if(!gameActive) return;
+    const cell = cells[idx];
+    if(cell.classList.contains('revealed')) return;
+    cell.classList.add('revealed');
+    if(mineIndexes.includes(idx)){
+        cell.classList.add('mine');
+        alert('БА-БАХ! Мина! Ставка проиграна.');
+        gameActive=false;
+    } else {
+        cell.classList.add('safe');
+        const win = bet * 2; // выигрыш за безопасную клетку
+        balance += win;
+        updateBal();
+        const safeCellsLeft = cells.filter((c,i)=>!c.classList.contains('revealed') && !mineIndexes.includes(i)).length;
+        if(safeCellsLeft===0){
+            alert('Поздравляем! Вы открыли все безопасные клетки!');
+            gameActive=false;
         }
-    });
-});
-
-function handleWin(mult, bet){
-    const winAmount = bet * mult;
-    balance += winAmount;
-    updateBal();
-
-    const pop = document.getElementById('winPopup');
-    pop.style.display='block';
-    pop.style.color = mult===0?'#ff4444':(mult===30?'#ff00ff':'#00ff00');
-    pop.innerHTML = mult>0?`ПЕРВЫМ ПРИШЕЛ ${mult}x!<br>ВЫИГРЫШ: ${winAmount} TON`:`ПЕРВЫМ ПРИШЕЛ 0x...<br>СТАВКА ПРОИГРАНА`;
-
-    if(window.Telegram?.WebApp) window.Telegram.WebApp.HapticFeedback.notificationOccurred(mult>0?'success':'error');
-
-    setTimeout(()=>{
-        isRacing=false;
-        document.querySelectorAll('.btn').forEach(b=>b.disabled=false);
-    }, 2000);
+    }
 }
+
+startBtn.addEventListener('click',startGame);
+updateBal();
+</script>
+
+</body>
+</html>
