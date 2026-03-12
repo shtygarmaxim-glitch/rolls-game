@@ -9,51 +9,90 @@ const io = new Server(server);
 
 app.use(express.static(__dirname));
 
-let lobbyGames = [];
+let gameRoom = {
+    players: [],
+    timer: null,
+    status: 'waiting' // 'waiting', 'counting', 'spinning'
+};
 
 io.on('connection', (socket) => {
-    console.log('Игрок подключился:', socket.id);
+    socket.emit('updateRoom', gameRoom);
 
-    // Отправляем текущее лобби новому игроку
-    socket.emit('updateLobby', lobbyGames);
+    socket.on('joinGame', (userData) => {
+        if (gameRoom.status === 'spinning') return;
 
-    // Создание ставки
-    socket.on('createBet', (data) => {
-        const newGame = { 
-            id: socket.id, 
-            amount: data.amount, 
-            userName: data.userName 
-        };
-        // Удаляем старые ставки этого же игрока, чтобы не спамил
-        lobbyGames = lobbyGames.filter(g => g.id !== socket.id);
-        lobbyGames.push(newGame);
-        io.emit('updateLobby', lobbyGames);
-    });
-
-    // Когда второй игрок принимает вызов
-    socket.on('joinGame', (data) => {
-        const game = lobbyGames.find(g => g.id === data.gameId);
-        if (game) {
-            // Убираем игру из списка доступных
-            lobbyGames = lobbyGames.filter(g => g.id !== data.gameId);
-            io.emit('updateLobby', lobbyGames);
-            
-            // Магия: определяем победителя на сервере (50/50)
-            const winnerName = Math.random() > 0.5 ? game.userName : data.participantName;
-            
-            // Даем команду обоим игрокам запустить анимацию
-            io.emit('startGameAnimation', { 
-                winner: winnerName,
-                amount: game.amount 
+        // Добавляем или обновляем ставку игрока
+        const existingPlayer = gameRoom.players.find(p => p.id === socket.id);
+        if (existingPlayer) {
+            existingPlayer.amount += userData.amount;
+        } else {
+            gameRoom.players.push({
+                id: socket.id,
+                name: userData.userName,
+                amount: userData.amount,
+                color: `#${Math.floor(Math.random()*16777215).toString(16)}`
             });
         }
+
+        // Если игроков двое и более — запускаем таймер
+        if (gameRoom.players.length >= 2 && gameRoom.status === 'waiting') {
+            startCountdown();
+        }
+
+        io.emit('updateRoom', gameRoom);
     });
 
+    function startCountdown() {
+        gameRoom.status = 'counting';
+        let timeLeft = 20;
+        
+        gameRoom.timer = setInterval(() => {
+            timeLeft--;
+            io.emit('timerTick', timeLeft);
+
+            if (timeLeft <= 0) {
+                clearInterval(gameRoom.timer);
+                finishGame();
+            }
+        }, 1000);
+    }
+
+    function finishGame() {
+        gameRoom.status = 'spinning';
+        const totalBank = gameRoom.players.reduce((sum, p) => sum + p.amount, 0);
+        
+        // Выбираем победителя по весам ставок
+        let random = Math.random() * totalBank;
+        let currentSum = 0;
+        let winner = gameRoom.players[0];
+
+        for (let p of gameRoom.players) {
+            currentSum += p.amount;
+            if (random <= currentSum) {
+                winner = p;
+                break;
+            }
+        }
+
+        io.emit('startGameAnimation', { 
+            winner: winner.name, 
+            winnerId: winner.id,
+            players: gameRoom.players, 
+            totalBank: totalBank 
+        });
+
+        // Сброс игры через 8 секунд после начала крутки
+        setTimeout(() => {
+            gameRoom = { players: [], timer: null, status: 'waiting' };
+            io.emit('updateRoom', gameRoom);
+        }, 10000);
+    }
+
     socket.on('disconnect', () => {
-        lobbyGames = lobbyGames.filter(g => g.id !== socket.id);
-        io.emit('updateLobby', lobbyGames);
+        // Если игрок вышел до начала отсчета, можно удалять, 
+        // но в азартных играх лучше оставлять ставку в банке.
     });
 });
 
 const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => console.log('Сервер онлайн!'));
+server.listen(PORT, () => console.log('Multiplayer Server Live!'));
