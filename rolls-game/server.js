@@ -1,61 +1,41 @@
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
-require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const BOT_TOKEN = process.env.BOT_TOKEN; // Сохраните токен в .env
+// Render зазвичай використовує порт 10000
+const PORT = process.env.PORT || 10000;
+const BOT_TOKEN = process.env.BOT_TOKEN; 
 
 app.use(express.json());
-app.use(express.static('public')); // Папка с HTML/CSS/JS
+
+// Раздаємо статичні файли (index.html тощо) прямо з кореневої папки
+app.use(express.static(__dirname));
 
 // ===== ENDPOINTS =====
 
-// Главная страница
+// Головна сторінка
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Mini App
+// Mini App шлях
 app.get('/rolls', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// API для сохранения результатов игры
+// API для збереження результатів
 app.post('/api/game-result', (req, res) => {
     const { userId, gameType, result } = req.body;
-
-    console.log(`Новый результат от ${userId}:`, result);
-
-    // Здесь можно сохранить в БД
-    // await saveGameResult(userId, gameType, result);
-
-    res.json({ success: true, message: 'Результат сохранен' });
+    console.log(`Новий результат від ${userId}:`, result);
+    res.json({ success: true, message: 'Результат збережено' });
 });
 
-// API для получения статистики
-app.get('/api/stats/:userId', (req, res) => {
-    const userId = req.params.userId;
-
-    // Получить статистику из БД
-    const stats = {
-        userId: userId,
-        wheelGames: 10,
-        wheelWins: 6,
-        ballsGames: 8,
-        ballsFinishes: 5,
-        ballsBestTime: 12.5,
-    };
-
-    res.json(stats);
-});
-
-// Webhook для сообщений от Telegram
+// Обробка повідомлень від Telegram (Webhook)
 app.post(`/webhook/${BOT_TOKEN}`, (req, res) => {
     const msg = req.body.message;
 
-    if (!msg) {
+    if (!msg || !msg.text) {
         res.sendStatus(200);
         return;
     }
@@ -63,21 +43,24 @@ app.post(`/webhook/${BOT_TOKEN}`, (req, res) => {
     const chatId = msg.chat.id;
     const text = msg.text;
 
-    console.log(`Сообщение от ${chatId}: ${text}`);
-
     if (text === '/start') {
         sendMessage(chatId, 
-            '🎡 Добро пожаловать в Rolls!\n\n' +
-            'Нажмите кнопку ниже, чтобы запустить мини-приложение.'
+            '🎡 Ласкаво просимо до Rolls!\n\n' +
+            'Натисніть кнопку нижче, щоб запустити гру.'
         );
     }
 
     res.sendStatus(200);
 });
 
-// ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
+// ===== ДОПОМІЖНІ ФУНКЦІЇ =====
 
 async function sendMessage(chatId, text) {
+    if (!BOT_TOKEN) {
+        console.error('Помилка: BOT_TOKEN не встановлено в Environment Variables на Render!');
+        return;
+    }
+
     try {
         await axios.post(
             `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
@@ -88,9 +71,10 @@ async function sendMessage(chatId, text) {
                 reply_markup: {
                     inline_keyboard: [[
                         {
-                            text: '🎮 Открыть приложение',
+                            text: '🎮 Відкрити гру',
                             web_app: {
-                                url: 'https://yourdomain.com/rolls'
+                                // Замініть на ваше посилання від Render після успішного деплою
+                                url: `https://${process.env.RENDER_EXTERNAL_HOSTNAME || 'your-app-name.onrender.com'}/rolls`
                             }
                         }
                     ]]
@@ -98,13 +82,13 @@ async function sendMessage(chatId, text) {
             }
         );
     } catch (error) {
-        console.error('Ошибка при отправке сообщения:', error);
+        console.error('Помилка відправки повідомлення в TG:', error.message);
     }
 }
 
-// ===== ЗАПУСК СЕРВЕРА =====
-
 app.listen(PORT, () => {
-    console.log(`🚀 Сервер запущен на http://localhost:${PORT}`);
-    console.log(`📱 Mini App доступен на http://localhost:${PORT}/rolls`);
+    console.log(`Сервер запущено на порту ${PORT}`);
+    if (!BOT_TOKEN) {
+        console.warn('УВАГА: BOT_TOKEN не знайдено! Додайте його в налаштуваннях Render (Environment).');
+    }
 });
