@@ -1,11 +1,12 @@
 const express = require('express');
-const http = require('http');
 const path = require('path');
-
 const app = express();
-const server = http.createServer(app);
 
 app.use(express.static(__dirname));
 
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => console.log('Solo Marble Server Live on rolls-game'));
+app.listen(PORT, () => console.log('Solo Mode Server Live!'));
