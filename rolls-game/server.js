@@ -5,14 +5,15 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, { cors: { origin: "*" } });
 
 app.use(express.static(__dirname));
 
 let gameRoom = {
     players: [],
     timer: null,
-    status: 'waiting' // 'waiting', 'counting', 'spinning'
+    status: 'waiting',
+    timeLeft: 20
 };
 
 io.on('connection', (socket) => {
@@ -21,20 +22,20 @@ io.on('connection', (socket) => {
     socket.on('joinGame', (userData) => {
         if (gameRoom.status === 'spinning') return;
 
-        // Добавляем или обновляем ставку игрока
-        const existingPlayer = gameRoom.players.find(p => p.id === socket.id);
-        if (existingPlayer) {
-            existingPlayer.amount += userData.amount;
+        // Ищем игрока по socket.id, чтобы не было дублей и пропаданий
+        let player = gameRoom.players.find(p => p.id === socket.id);
+        if (player) {
+            player.amount += userData.amount;
         } else {
             gameRoom.players.push({
                 id: socket.id,
                 name: userData.userName,
                 amount: userData.amount,
-                color: `#${Math.floor(Math.random()*16777215).toString(16)}`
+                color: '#' + Math.floor(Math.random()*16777215).toString(16)
             });
         }
 
-        // Если игроков двое и более — запускаем таймер
+        // Запуск таймера, если зашло 2+ человека
         if (gameRoom.players.length >= 2 && gameRoom.status === 'waiting') {
             startCountdown();
         }
@@ -44,13 +45,15 @@ io.on('connection', (socket) => {
 
     function startCountdown() {
         gameRoom.status = 'counting';
-        let timeLeft = 20;
+        gameRoom.timeLeft = 20;
+        
+        if (gameRoom.timer) clearInterval(gameRoom.timer);
         
         gameRoom.timer = setInterval(() => {
-            timeLeft--;
-            io.emit('timerTick', timeLeft);
+            gameRoom.timeLeft--;
+            io.emit('timerTick', gameRoom.timeLeft);
 
-            if (timeLeft <= 0) {
+            if (gameRoom.timeLeft <= 0) {
                 clearInterval(gameRoom.timer);
                 finishGame();
             }
@@ -58,10 +61,14 @@ io.on('connection', (socket) => {
     }
 
     function finishGame() {
+        if (gameRoom.players.length < 2) {
+            gameRoom.status = 'waiting';
+            return;
+        }
+
         gameRoom.status = 'spinning';
         const totalBank = gameRoom.players.reduce((sum, p) => sum + p.amount, 0);
         
-        // Выбираем победителя по весам ставок
         let random = Math.random() * totalBank;
         let currentSum = 0;
         let winner = gameRoom.players[0];
@@ -76,21 +83,19 @@ io.on('connection', (socket) => {
 
         io.emit('startGameAnimation', { 
             winner: winner.name, 
-            winnerId: winner.id,
+            winnerSocketId: winner.id,
             players: gameRoom.players, 
             totalBank: totalBank 
         });
 
-        // Сброс игры через 8 секунд после начала крутки
         setTimeout(() => {
-            gameRoom = { players: [], timer: null, status: 'waiting' };
+            gameRoom = { players: [], timer: null, status: 'waiting', timeLeft: 20 };
             io.emit('updateRoom', gameRoom);
         }, 10000);
     }
 
     socket.on('disconnect', () => {
-        // Если игрок вышел до начала отсчета, можно удалять, 
-        // но в азартных играх лучше оставлять ставку в банке.
+        // Ставки остаются в банке, даже если игрок вышел
     });
 });
 
